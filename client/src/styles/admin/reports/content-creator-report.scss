@@ -1,0 +1,120 @@
+// Admin reports styling for Content Creator
+.content-creator-report {
+  padding: 20px;
+
+  &__header {
+    margin-bottom: 20px;
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    .description {
+      color: var(--text-muted);
+    }
+  }
+
+  &__filters {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    margin-bottom: 20px;
+
+    .form-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      align-items: flex-end;
+    }
+
+    label {
+      margin-bottom: 5px;
+      display: block;
+    }
+
+    .btn {
+      margin-top: 10px;
+    }
+  }
+
+  &__summary {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+
+    &-card {
+      background-color: #fff;
+      padding: 15px;
+      border-radius: 5px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      min-width: 200px;
+      flex: 1;
+      margin: 0 10px 10px 0;
+
+      .title {
+        color: var(--text-muted);
+        font-size: 14px;
+        margin-bottom: 8px;
+      }
+
+      .value {
+        font-size: 24px;
+        font-weight: 600;
+      }
+    }
+  }
+
+  // Style for the GridField in reports
+  .grid-field {
+    border-radius: 5px;
+    overflow: hidden;
+
+    .grid-field__table {
+      margin-bottom: 0;
+    }
+
+    .grid-field__filter-header {
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .col-buttons .action {
+      background-color: transparent;
+      border: none;
+      color: var(--brand-primary);
+      padding: 5px;
+      margin-right: 5px;
+
+      &:hover {
+        filter: brightness(90%); // Apply filter instead
+      }
+    }
+  }
+
+  // Pagination styles
+  .pagination {
+    margin-top: 20px;
+    display: flex;
+    justify-content: center;
+
+    .page-item {
+      margin: 0 3px;
+
+      .page-link {
+        padding: 8px 12px;
+        border-radius: 4px;
+
+        &:hover {
+          background-color: #f1f1f1;
+        }
+      }
+
+      &.active .page-link {
+        background-color: var(--brand-primary);
+        color: white;
+      }
+    }
+  }
+}

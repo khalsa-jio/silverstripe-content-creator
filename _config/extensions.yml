@@ -1,0 +1,13 @@
+---
+Name: content-creator-gridfield-extensions
+After:
+  - '#cmsextensions'
+---
+SilverStripe\Forms\GridField\GridFieldDetailForm_ItemRequest:
+  extensions:
+    - KhalsaJio\ContentCreator\Extensions\ContentCreatorGridFieldItemRequestExtension
+
+# Register the content creator controller routes
+SilverStripe\Control\Director:
+  rules:
+    'admin/contentcreator': 'KhalsaJio\\ContentCreator\\Controllers\\ContentCreatorController'

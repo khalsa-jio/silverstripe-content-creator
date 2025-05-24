@@ -1,0 +1,80 @@
+// Content Creator button styles
+.content-creator-btn {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+
+  &__icon {
+    margin-right: 8px;
+    font-size: 16px;
+  }
+
+  &--primary {
+    background-color: var(--brand-primary);
+    color: white;
+
+    &:hover {
+      filter: brightness(90%);
+    }
+  }
+
+  &--secondary {
+    background-color: #f1f1f1;
+    border-color: #ddd;
+    color: var(--text-dark);
+
+    &:hover {
+      background-color: #e5e5e5;
+    }
+  }
+
+  &--generate {
+    background-color: #28a745;
+    color: white;
+
+    &:hover {
+      background-color: darken(#28a745, 10%);
+    }
+  }
+
+  &--apply {
+    background-color: #007bff;
+    color: white;
+
+    &:hover {
+      background-color: darken(#007bff, 10%);
+    }
+  }
+
+  &--disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  &--loading {
+    position: relative;
+
+    .spinner {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      border: 2px solid rgba(255,255,255,.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spinner-rotate .6s linear infinite;
+      margin-right: 8px;
+    }
+  }
+}
+
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}

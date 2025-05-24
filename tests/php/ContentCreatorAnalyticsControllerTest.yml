@@ -1,0 +1,61 @@
+SilverStripe\Security\Member:
+  admin:
+    FirstName: Admin
+    Surname: User
+    Email: admin@example.com
+    Password: password
+  user:
+    FirstName: Regular
+    Surname: User
+    Email: user@example.com
+    Password: password
+    Groups: =>SilverStripe\Security\Group.content_authors
+
+SilverStripe\Security\Group:
+  content_authors:
+    Title: Content Authors
+    Code: content-authors
+
+SilverStripe\CMS\Model\SiteTree:
+  home:
+    Title: Home
+    URLSegment: home
+    Content: '<p>Welcome to the test site</p>'
+
+KhalsaJio\ContentCreator\Models\ContentCreationEvent:
+  event1:
+    Type: generation_started
+    EventData: '{"pageID":1,"prompt":"Create content about sustainability","fields":["Title","Content"]}'
+    Member: =>SilverStripe\Security\Member.admin
+    Page: =>SilverStripe\CMS\Model\SiteTree.home
+    PageClass: SilverStripe\CMS\Model\SiteTree
+    TokensUsed: 0
+    ProcessingTime: 0
+    Success: true
+  event2:
+    Type: generation_completed
+    EventData: '{"pageID":1,"prompt":"Create content about sustainability","fields":["Title","Content"],"tokens":1024,"time":3.5}'
+    Member: =>SilverStripe\Security\Member.admin
+    Page: =>SilverStripe\CMS\Model\SiteTree.home
+    PageClass: SilverStripe\CMS\Model\SiteTree
+    TokensUsed: 1024
+    ProcessingTime: 3.5
+    Success: true
+  event3:
+    Type: content_applied
+    EventData: '{"pageID":1,"fields":["Content"]}'
+    Member: =>SilverStripe\Security\Member.admin
+    Page: =>SilverStripe\CMS\Model\SiteTree.home
+    PageClass: SilverStripe\CMS\Model\SiteTree
+    TokensUsed: 0
+    ProcessingTime: 0.5
+    Success: true
+  event_error:
+    Type: generation_error
+    EventData: '{"pageID":1,"error":"API limit exceeded"}'
+    Member: =>SilverStripe\Security\Member.admin
+    Page: =>SilverStripe\CMS\Model\SiteTree.home
+    PageClass: SilverStripe\CMS\Model\SiteTree
+    TokensUsed: 0
+    ProcessingTime: 0.2
+    Success: false

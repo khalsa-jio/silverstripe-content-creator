@@ -5,6 +5,7 @@
   },
   "scripts": {
     "build": "yarn && yarn lint && yarn test && rm -rf client/dist/* && NODE_ENV=production webpack --mode production --bail --progress",
+    "build-assets": "mkdir -p client/dist/js client/dist/styles && NODE_ENV=production webpack --mode production --bail --progress",
     "dev": "NODE_ENV=development webpack --progress",
     "watch": "NODE_ENV=development webpack --watch --progress",
     "css": "WEBPACK_CHILD=css npm run build",
@@ -16,19 +17,28 @@
     "lint-sass": "sass-lint client/src"
   },
   "dependencies": {
+    "@apollo/client": "^3.13.8",
+    "axios": "^1.9.0",
+    "bootstrap": "^5.3.6",
     "core-js": "^3.26.0",
-    "react": "^18.2.0"
+    "jquery": "^3.7.1",
+    "react": "^18.2.0",
+    "react-bootstrap": "^2.10.10",
+    "react-redux": "^9.2.0",
+    "redux": "^5.0.1"
   },
   "devDependencies": {
     "@babel/runtime": "^7.20.0",
     "@silverstripe/eslint-config": "^1.0.0",
     "@silverstripe/webpack-config": "^2.0.0",
+    "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^14.0.0",
     "eslint": "^8.0.0",
     "eslint-plugin-react-hooks": "^4.3.0",
     "jest-cli": "^29.2.2",
     "jest-environment-jsdom": "^29.3.1",
     "react-dom": "^18.0.0",
+    "sass-lint": "^1.13.1",
     "webpack": "^5.74.0",
     "webpack-cli": "^5.0.0"
   },

@@ -1,0 +1,4 @@
+SilverStripe\CMS\Model\SiteTree:
+  test_page:
+    Title: 'Test Page'
+    Content: '<p>This is a test page</p>'

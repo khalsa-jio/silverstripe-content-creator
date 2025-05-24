@@ -1,3 +1,4 @@
+# Build artifacts
 node_modules/
 /vendor/
 .DS_Store
@@ -5,3 +6,19 @@ composer.lock
 *.js.map
 *.css.map
 yarn-error.log
+yarn.lock
+
+# IDE artifacts
+.idea/
+.vscode/
+
+# Development files
+.env
+.env.local
+.env.*.local
+/public/
+/silverstripe-cache/
+/.phpunit.result.cache
+/phpunit.xml
+/phpcs.xml
+/phpunit-filter.php

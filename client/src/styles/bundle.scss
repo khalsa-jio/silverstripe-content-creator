@@ -1,8 +1,15 @@
 // Import core variables from silverstripe/admin
 @import 'variables';
 
-// Import your SCSS stylesheets using relative paths from "components"
-@import '../components/ExampleComponent/ExampleComponent.scss';
+// Import component stylesheets
+@import '../components/ContentCreator/ContentCreatorModal.scss';
 
-// Import other legacy SCSS stylesheets that don't relate to react components
+// Import content creator specific styles
+@import 'content-creator/chat';
+@import 'content-creator/modal';
+@import 'content-creator/buttons';
+@import 'content-creator/analytics';
+
+// Import admin styles for reports
 @import 'admin/pages/pages';
+@import 'admin/reports/content-creator-report';

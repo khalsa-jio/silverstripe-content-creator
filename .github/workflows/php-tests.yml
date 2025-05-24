@@ -1,0 +1,93 @@
+name: PHP Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version:
+          - '7.4'
+          - '8.0'
+          - '8.1'
+        silverstripe-version:
+          - '4.10.x-dev'
+          - '4.11.x-dev'
+          - '5.0.x-dev'
+          - '5.1.x-dev'
+      fail-fast: false
+
+    name: PHP ${{ matrix.php-version }} - SilverStripe ${{ matrix.silverstripe-version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: dom, curl, libxml, mbstring, zip, intl, mysql, gd, xdebug
+          coverage: xdebug
+
+      - name: Validate composer.json and composer.lock
+        run: composer validate --strict
+
+      - name: Cache Composer packages
+        id: composer-cache
+        uses: actions/cache@v3
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php-${{ matrix.php-version }}-ss-${{ matrix.silverstripe-version }}-${{ hashFiles('**/composer.json') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php-version }}-ss-${{ matrix.silverstripe-version }}
+            ${{ runner.os }}-php-${{ matrix.php-version }}
+
+      - name: Install dependencies
+        run: |
+          composer require silverstripe/recipe-cms:${{ matrix.silverstripe-version }} --no-update
+          composer update --prefer-dist --no-interaction
+
+      - name: Run PHP Unit tests
+        run: |
+          vendor/bin/phpunit --coverage-clover=coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  javascript:
+    runs-on: ubuntu-latest
+    name: JavaScript Tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          cache: 'npm'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run JavaScript tests
+        run: npm run test
+
+      - name: Build JavaScript assets
+        run: npm run build

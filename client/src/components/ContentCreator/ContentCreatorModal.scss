@@ -1,0 +1,89 @@
+.content-creator-modal {
+  .modal-dialog {
+    max-width: 800px;
+  }
+  
+  .modal-body {
+    padding: 1.5rem;
+  }
+  
+  .prompt-container, .preview-container, .done-container {
+    margin-bottom: 1rem;
+  }
+  
+  .content-creator-page-structure {
+    margin-top: 1.5rem;
+    border-top: 1px solid #eee;
+    padding-top: 1rem;
+    
+    ul {
+      padding-left: 1.5rem;
+    }
+  }
+  
+  .content-creator-generated-content {
+    pre {
+      background-color: #f8f9fa;
+      padding: 1rem;
+      border-radius: 4px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+  }
+  
+  .content-creator-chat-history {
+    margin-top: 1.5rem;
+    border-top: 1px solid #eee;
+    padding-top: 1rem;
+    
+    .chat-message {
+      margin-bottom: 1rem;
+      
+      .message-header {
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+      }
+      
+      .message-content {
+        background-color: #f8f9fa;
+        padding: 0.75rem;
+        border-radius: 4px;
+        
+        pre {
+          margin: 0;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+        }
+      }
+      
+      &.prompt {
+        .message-header {
+          color: #0275d8;
+        }
+      }
+      
+      &.response {
+        .message-header {
+          color: #5cb85c;
+        }
+      }
+    }
+  }
+  
+  .alert {
+    margin-bottom: 1rem;
+  }
+}
+
+.btn-outline-info.action_contentcreator {
+  // Match the theme of the other buttons in the GridField
+  &:hover {
+    background-color: #0275d8;
+    border-color: #0275d8;
+    color: white;
+  }
+  
+  .font-icon-magic {
+    margin-right: 0.5rem;
+  }
+}

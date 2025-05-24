@@ -1,1 +1,20 @@
-// There would be some css changes relevant to something in the CMS pages admin
+// Content Creator Admin Styling
+
+// Styling for the filter group in the Content Creation Event admin
+.filter-group.stacked {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  
+  .field {
+    margin-right: 10px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  
+  .btn-secondary {
+    margin-top: 24px; // Align with other inputs
+  }
+}

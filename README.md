@@ -1,88 +1,98 @@
-# Silverstripe CMS supported module skeleton
+# Silverstripe Content Creator
 
-A useful skeleton to more easily create a [Silverstripe CMS Module](https://docs.silverstripe.org/en/developer_guides/extending/modules/) that conform to the
-[Module Standard](https://docs.silverstripe.org/en/developer_guides/extending/modules/#module-standard).
+An AI-powered content generation module for Silverstripe CMS that allows content editors to create page content using natural language prompts. When creating a new page in the Silverstripe CMS, this module adds a button that opens a modal where users can input prompts to generate content. The AI will structure the content based on the available fields or Elemental blocks for that page type.
 
-This README contains descriptions of the parts of this module base you should customise to meet you own module needs.
-For example, the module name in the H1 above should be you own module name, and the description text you are reading now
-is where you should provide a good short explanation of what your module does.
+![Silverstripe Content Creator Screenshot](docs/en/images/content-creator-screenshot.png)
 
-Where possible we have included default text that can be included as is into your module and indicated in
-other places where you need to customise it
+## How it works
 
-Below is a template of the sections of your `README.md` you should ideally include to met the Module Standard
-and help others make use of your modules.
+1. The module adds a "Generate Content with AI" button to the GridField Item request in the Silverstripe CMS.
+2. When clicked, a modal opens where users can enter a prompt describing the content they want to generate.
+3. The system analyzes the page structure (fields and elemental blocks if available).
+4. The LLM (Language Learning Model) generates appropriate content based on the prompt and page structure.
+5. Users can review the generated content in a preview.
+6. Once approved, the content is applied to the page fields using the Silverstripe Populate module.
+7. Users can continue the conversation to refine the content as needed.
 
-## Steps to prepare this module for your own use
+## Features
 
-Ensure you read the
-['publishing a module'](https://docs.silverstripe.org/en/developer_guides/extending/how_tos/publish_a_module/) guide
-and update your module's `composer.json` to designate your code as a Silversripe CMS module.
+- AI-powered content generation directly within the Silverstripe CMS page editing interface
+- Intelligent content structuring based on available page fields or Elemental blocks
+- Chat-like interface for iterating on generated content
+- Configurable LLM provider integration
+- Support for integration with various LLM providers (OpenAI, Anthropic, etc.)
+- Compatibility with the Silverstripe Populate module for filling content
+- Comprehensive unit and end-to-end tests
 
-- Clone this repository into a folder
-- Add your name/organisation to `LICENSE.md`
-- Update this README with information about your module. Ensure sections that aren't relevant are deleted and
-placeholders are edited where relevant
-- Review the README files in the various provided directories. You should ultimately delete these README files when you have added your code
-- Update the module's `composer.json` with your requirements and package name
-- Update (or remove) `package.json` with your requirements and package name. Run `yarn install` (or remove `yarn.lock`) to
-ensure dependencies resolve correctly
-- Clear the git history by running `rm -rf .git && git init`
-- Add and push to a VCS repository
-- Either [publish](https://getcomposer.org/doc/02-libraries.md#publishing-to-packagist) the module on packagist.org, or add a [custom repository](https://getcomposer.org/doc/02-libraries.md#publishing-to-a-vcs) to your main `composer.json`
-- Require the module in your main `composer.json`
-- If you need to build your css or js and are using components, injector, scss variables, etc from `silverstripe/admin`:
-  - Ensure that `silverstripe/admin` is installed with `composer install --prefer-source` instead of the default `--prefer-dist` (you can use `composer reinstall silverstripe/admin --prefer-source` if you already installed it)
-  - If you are relying on additional dependencies from `silverstripe/admin` instead of adding them as dependencies in your `package.json` file, you need to install third party dependencies in `silverstripe/admin` by running `yarn install` in the `vendor/silverstripe/admin/` directory.
-- Start developing your module!
+## Requirements
 
-## License
-
-See [License](LICENSE.md)
-
-This module template defaults to using the "BSD-3-Clause" license. The BSD-3 license is one of the most
-permissive open-source license and is used by most Silverstripe CMS module.
-
-To publish your module under a different license:
-
-- update the [`license.md`](LICENSE.md) file
-- update the `license' key in your [`composer.json`](composer.json).
-
-You can use [choosealicense.com](https://choosealicense.com) to help you pick a suitable license for your project.
-
-You do not need to keep this section in your README file - the `LICENSE.md` file is sufficient.
+- PHP 8.1+
+- Silverstripe CMS 5.0+
+- Silverstripe Admin 2.0+
+- Silverstripe Populate 3.0+
+- GuzzleHTTP 7.0+
 
 ## Installation
 
-Replace `silverstripe-module/skeleton` in the command below with the composer name of your module.
-
 ```sh
-composer require silverstripe-module/skeleton
+composer require khalsa-jio/silverstripe-content-creator
 ```
 
-**Note:** When you have completed your module, submit it to Packagist or add it as a VCS repository to your
-project's composer.json, pointing to the private repository URL.
+After installation, run a dev/build to ensure all database tables and extensions are properly set up.
+
+## Configuration
+
+You can configure the module via YAML configuration. Create a file in your project's `_config` directory (e.g., `content-creator.yml`) with the following settings:
+
+```yaml
+KhalsaJio\ContentCreator\Services\LLMService:
+  default_provider: 'OpenAI'  # Options: 'OpenAI', 'Claude', 'Custom'
+  providers:
+    OpenAI:
+      api_key: 'your-api-key-here' # Environment variable recommended: '`OPENAI_API_KEY`'
+      model: 'gpt-4o'  # Or another available model
+      max_tokens: 4000
+      temperature: 0.7
+    Claude:
+      api_key: 'your-api-key-here' # Environment variable recommended: '`ANTHROPIC_API_KEY`'
+      model: 'claude-3-opus-20240229'
+      max_tokens: 4000
+      temperature: 0.7
+    Custom:
+      class: 'Your\Custom\LLMProvider'
+      api_key: 'your-api-key-here'
+
+KhalsaJio\ContentCreator\Extensions\ContentCreatorExtension:
+  enabled_page_types:
+    - SilverStripe\CMS\Model\SiteTree
+    # Add specific page classes if you want to limit to certain types
+  excluded_page_types:
+    - SilverStripe\ErrorPage\ErrorPage
+    # Add page types that should never show the content creator button
+```
+
+You can also use the Silverstripe AI Nexus module for more advanced LLM integrations:
+
+```yaml
+KhalsaJio\ContentCreator\Services\LLMService:
+  use_ai_nexus: true
+  
+KhalsaJio\AI\Nexus\LLMClient:
+  default_client: KhalsaJio\AI\Nexus\Provider\OpenAI
+  
+SilverStripe\Core\Injector\Injector:
+  KhalsaJio\AI\Nexus\Provider\OpenAI:
+    properties:
+      ApiKey: '`OPENAI_API_KEY`'
+      Model: 'gpt-4o'
+```
 
 ## Documentation
 
-- [Documentation readme](docs/en/README.md)
+- [User Guide](docs/en/userguide.md)
+- [Developer Documentation](docs/en/developer.md)
+- [API Documentation](docs/en/api.md)
 
-Add links into your `docs/<language>` folder here unless your module only requires minimal documentation
-in that case, add here and remove the docs folder. You might use this as a quick table of content if you
-mhave multiple documentation pages.
+## License
 
-## Example configuration
-
-If your module makes use of the config API in Silverstripe CMS it's a good idea to provide an example config
-here that will get the module working out of the box and expose the user to the possible configuration options.
-Though note that in many cases simply linking to the documentation is enough.
-
-Provide a syntax-highlighted code examples where possible.
-
-```yaml
-Page:
-  config_option: true
-  another_config:
-    - item1
-    - item2
-```
+See [License](LICENSE) for details.
