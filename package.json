@@ -17,10 +17,10 @@
     "lint-sass": "sass-lint client/src"
   },
   "dependencies": {
-    "@apollo/client": "^3.13.8",
     "axios": "^1.9.0",
     "bootstrap": "^5.3.6",
     "core-js": "^3.26.0",
+    "dompurify": "^3.2.6",
     "jquery": "^3.7.1",
     "react": "^18.2.0",
     "react-bootstrap": "^2.10.10",

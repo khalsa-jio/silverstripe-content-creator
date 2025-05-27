@@ -6,10 +6,10 @@ use SilverStripe\Control\Controller;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Core\Injector\Injector;
 use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
-use SilverStripe\Security\SecurityToken;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\Security\Permission;
 use SilverStripe\Control\HTTPResponse;
+use SilverStripe\Versioned\Versioned;
 
 /**
  * Controller for handling content generation requests
@@ -17,15 +17,22 @@ use SilverStripe\Control\HTTPResponse;
 class ContentCreatorController extends Controller
 {
     private static $url_segment = 'contentcreator';
-    
+
+    private static $url_handlers = [
+        'POST generate' => 'generate',
+        'GET getPageStructure' => 'getPageStructure',
+        'POST applyContent' => 'applyContent',
+        'GET debug' => 'debug',
+    ];
+
     /**
      * Allowed actions for this controller
      */
     private static $allowed_actions = [
         'generate',
-        'getPageStructure', 
+        'getPageStructure',
         'applyContent',
-        'debug',  // Add a debug action
+        'debug',
     ];
 
     /**
@@ -40,22 +47,28 @@ class ContentCreatorController extends Controller
             return $this->jsonResponse(['error' => 'Invalid request'], 400);
         }
 
-        $pageId = $request->postVar('pageID');
-        $prompt = $request->postVar('prompt');
+        $jsonBody = $this->getJsonBody($request);
         
-        if (!$pageId || !$prompt) {
-            return $this->jsonResponse(['error' => 'Missing required parameters'], 400);
+        if ($jsonBody) {
+            $dataObjectID = isset($jsonBody['dataObjectID']) ? $jsonBody['dataObjectID'] : null;
+            $dataObjectClass = isset($jsonBody['dataObjectClass']) ? $jsonBody['dataObjectClass'] : null;
+            $prompt = isset($jsonBody['prompt']) ? $jsonBody['prompt'] : null;
         }
-        
-        $page = DataObject::get_by_id($pageId);
-        if (!$page || !$page->exists()) {
-            return $this->jsonResponse(['error' => 'Page not found'], 404);
+
+        if (!$dataObjectID || !$dataObjectClass || !$prompt) {
+            return $this->jsonResponse(['error' => 'Missing required parameters: dataObjectID, dataObjectClass, prompt'], 400);
         }
-        
+
+        $dataObject = $this->loadDataObject($dataObjectClass, $dataObjectID);
+
+        if (!$dataObject instanceof DataObject && isset($dataObject['error'])) {
+            return $this->jsonResponse($dataObject, $dataObject['code']);
+        }
+
         try {
             $generator = Injector::inst()->get(ContentGeneratorService::class);
-            $content = $generator->generateContent($page, $prompt);
-            
+            $content = $generator->generateContent($dataObject, $prompt);
+
             return $this->jsonResponse([
                 'success' => true,
                 'content' => $content
@@ -79,28 +92,30 @@ class ContentCreatorController extends Controller
             return $this->jsonResponse(['error' => 'Invalid request'], 400);
         }
 
-        $pageId = $request->getVar('pageID');
-        
-        if (!$pageId) {
-            return $this->jsonResponse(['error' => 'Missing required parameters'], 400);
+        $className = $request->getVar('dataObjectClass');
+        $id = $request->getVar('dataObjectID');
+
+        if (!$className || !$id) {
+            return $this->jsonResponse(['error' => 'Missing required parameters: dataObjectClass and dataObjectID'], 400);
         }
-        
-        $page = DataObject::get_by_id($pageId);
-        if (!$page || !$page->exists()) {
-            return $this->jsonResponse(['error' => 'Page not found'], 404);
+
+        $dataObject = $this->loadDataObject($className, $id, true);
+
+        if (!$dataObject instanceof DataObject &&  isset($dataObject['error'])) {
+            return $this->jsonResponse($dataObject, $dataObject['code']);
         }
-        
+
         try {
             $generator = Injector::inst()->get(ContentGeneratorService::class);
-            $structure = $generator->getPageFieldStructure($page);
-            
+            $structure = $generator->getPageFieldStructure($dataObject);
+
             return $this->jsonResponse([
                 'success' => true,
                 'structure' => $structure
             ]);
         } catch (\Exception $e) {
             return $this->jsonResponse([
-                'error' => $e->getMessage()
+                'error' => 'An unexpected error occurred while fetching the structure: ' . $e->getMessage()
             ], 500);
         }
     }
@@ -117,40 +132,36 @@ class ContentCreatorController extends Controller
             return $this->jsonResponse(['error' => 'Invalid request'], 400);
         }
 
-        $pageId = $request->postVar('pageID');
-        $contentData = $request->postVar('content');
-
-        if (!$pageId || !$contentData) {
-            return $this->jsonResponse(['error' => 'Missing required parameters'], 400);
+        // Try to get data from JSON body first
+        $jsonBody = $this->getJsonBody($request);
+        
+        if ($jsonBody) {
+            $dataObjectID = isset($jsonBody['dataObjectID']) ? $jsonBody['dataObjectID'] : null;
+            $dataObjectClass = isset($jsonBody['dataObjectClass']) ? $jsonBody['dataObjectClass'] : null;
+            $contentData = isset($jsonBody['content']) ? $jsonBody['content'] : null;
         }
 
-        if (is_string($contentData)) {
-            $contentData = json_decode($contentData, true);
-
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return $this->jsonResponse(['error' => 'Invalid content data format'], 400);
-            }
+        if (!$dataObjectID || !$dataObjectClass || !$contentData) {
+            return $this->jsonResponse(['error' => 'Missing required parameters: dataObjectID, dataObjectClass, content'], 400);
         }
 
-        $page = DataObject::get_by_id($pageId);
-        if (!$page || !$page->exists()) {
-            return $this->jsonResponse(['error' => 'Page not found'], 404);
+        $dataObject = $this->loadDataObject($dataObjectClass, $dataObjectID);
+
+        if (!$dataObject instanceof DataObject && isset($dataObject['error'])) {
+            return $this->jsonResponse($dataObject, $dataObject['code']);
+        }
+
+        $contentData = $this->parseContentData($contentData);
+        if ($contentData === false) {
+            return $this->jsonResponse(['error' => 'Invalid content data format'], 400);
         }
 
         try {
-            // Apply the content using the Populate module if available
-            if (class_exists('SilverStripe\\Populate\\Populate')) {
-                $populator = \SilverStripe\Populate\Populate::create();
-                // Use the Populate module to fill the page
-                $populator->populateObject($page, $contentData);
-            } else {
-                // Fallback: manually populate fields if Populate module is not available
-                $this->populatePageFields($page, $contentData);
-            }
+            $this->populatePageFields($dataObject, $contentData);
 
             return $this->jsonResponse([
                 'success' => true,
-                'message' => 'Content successfully applied to the page'
+                'message' => 'Content successfully applied to the ' . $dataObject->singular_name()
             ]);
         } catch (\Exception $e) {
             return $this->jsonResponse([
@@ -162,22 +173,23 @@ class ContentCreatorController extends Controller
     /**
      * Manually populate page fields if the Populate module is not available
      *
-     * @param DataObject $page
+     * @param DataObject $dataObject
      * @param array $data
+     * TODO: Need to handle complex field types (e.g. ManyMany, HasMany, etc.)
      */
-    protected function populatePageFields(DataObject $page, array $data)
+    protected function populatePageFields(DataObject $dataObject, array $data)
     {
         foreach ($data as $fieldName => $value) {
             // Skip fields that don't exist on the page
-            if (!$page->hasField($fieldName) && !$page->hasMethod("set$fieldName")) {
+            if (!$dataObject->hasField($fieldName) && !$dataObject->hasMethod("set$fieldName")) {
                 continue;
             }
-            
+
             // Set the field value
-            $page->$fieldName = $value;
+            $dataObject->$fieldName = $value;
         }
-        
-        $page->write();
+
+        $dataObject->write();
     }
 
     /**
@@ -188,17 +200,10 @@ class ContentCreatorController extends Controller
      */
     protected function validateRequest(HTTPRequest $request)
     {
-        // Check CSRF token
-        $csrfToken = $request->getHeader('X-SecurityToken');
-        if (!SecurityToken::inst()->check($csrfToken)) {
-            return false;
-        }
-        
         // Check permissions
-        if (!Permission::check('CMS_ACCESS_CMSMain')) {
+        if (!$request->isAjax() || !Permission::check('CMS_ACCESS_CMSMain')) {
             return false;
         }
-        
         return true;
     }
 
@@ -222,11 +227,101 @@ class ContentCreatorController extends Controller
     public function debug()
     {
         return json_encode([
-            'success' => true, 
+            'success' => true,
             'message' => 'ContentCreatorController loaded successfully',
-            'namespace' => __NAMESPACE__, 
+            'namespace' => __NAMESPACE__,
             'class' => __CLASS__,
             'file' => __FILE__
         ]);
+    }
+
+    /**
+     * Helper to load a DataObject with proper handling of Versioned records
+     *
+     * @param string $className The DataObject class name to load
+     * @param int $id The DataObject ID to load
+     * @param bool $checkLiveFirst Whether to check the Live stage first (true) or Draft first (false)
+     * @return array|DataObject Returns the DataObject if found, otherwise an error response array
+     */
+    protected function loadDataObject(string $className, int $id, bool $checkLiveFirst = false)
+    {
+        // Validate class exists and is a DataObject
+        if (!class_exists($className) || !is_subclass_of($className, DataObject::class)) {
+            return ['error' => 'Invalid dataObjectClass: ' . $className, 'code' => 400];
+        }
+
+        $dataObject = null;
+        
+        // Handle versioned DataObjects
+        if (DataObject::has_extension($className, Versioned::class)) {
+            // Determine which stage to check first
+            $firstStage = $checkLiveFirst ? Versioned::LIVE : Versioned::DRAFT;
+            $secondStage = $checkLiveFirst ? Versioned::DRAFT : Versioned::LIVE;
+            
+            // Try to load from the first stage
+            $dataObject = Versioned::get_by_stage($className, $firstStage)->byID($id);
+            
+            // If not found, try the second stage
+            if (!$dataObject || !$dataObject->exists()) {
+                $dataObject = Versioned::get_by_stage($className, $secondStage)->byID($id);
+            }
+        } else {
+            // Regular DataObject (not versioned)
+            $dataObject = DataObject::get($className)->byID($id);
+        }
+
+        // Return error if not found
+        if (!$dataObject || !$dataObject->exists()) {
+            $objectName = singleton($className)->i18n_singular_name();
+            return ['error' => $objectName . ' not found', 'code' => 404];
+        }
+
+        return $dataObject;
+    }
+
+    /**
+     * Parse JSON content data from a string or array
+     *
+     * @param string|array $contentData The content data to parse
+     * @return array|false Returns the parsed data as array, or false on error
+     */
+    protected function parseContentData($contentData)
+    {
+        if (is_array($contentData)) {
+            return $contentData;
+        }
+        
+        if (is_string($contentData)) {
+            $parsed = json_decode($contentData, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return false;
+            }
+            return $parsed;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Parse JSON from the request body
+     *
+     * @param HTTPRequest $request
+     * @return array|null The parsed JSON data or null if not valid JSON
+     */
+    protected function getJsonBody(HTTPRequest $request)
+    {
+        $body = $request->getBody();
+        
+        if (!$body) {
+            return null;
+        }
+        
+        $json = json_decode($body, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return null;
+        }
+        
+        return $json;
     }
 }

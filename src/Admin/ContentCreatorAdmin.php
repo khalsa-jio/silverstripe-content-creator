@@ -4,12 +4,10 @@ namespace KhalsaJio\ContentCreator\Admin;
 
 use SilverStripe\Admin\ModelAdmin;
 use KhalsaJio\ContentCreator\Models\ContentCreationEvent;
-use KhalsaJio\ContentCreator\Reports\ContentGenerationReport;
 use SilverStripe\Forms\GridField\GridFieldExportButton;
 use SilverStripe\Forms\DateField;
 use SilverStripe\Forms\FieldGroup;
 use SilverStripe\Forms\DropdownField;
-use SilverStripe\Forms\Form;
 use SilverStripe\Forms\FormAction;
 
 /**
@@ -61,7 +59,7 @@ class ContentCreatorAdmin extends ModelAdmin
             $resetAction = FormAction::create('resetFilter', 'Reset Filter')
                 ->setUseButtonTag(true)
                 ->addExtraClass('btn-secondary');
-                
+
             // Add a search button
             $searchAction = FormAction::create('doFilter', 'Search')
                 ->setUseButtonTag(true)
@@ -149,7 +147,7 @@ class ContentCreatorAdmin extends ModelAdmin
                 }
             }
         }
-        
+
         return $this->redirect($this->Link() . '?' . http_build_query($queryParams));
     }
 }

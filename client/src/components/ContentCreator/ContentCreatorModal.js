@@ -1,21 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { Button, Modal, Form } from 'react-bootstrap';
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalTitle,
+  Alert,
+} from 'react-bootstrap';
 import axios from 'axios';
 import Analytics from './ContentCreatorAnalytics';
+
+import PageStructure from './PageStructure';
+import ChatHistory from './ChatHistory';
+import PromptForm from './PromptForm';
+import ContentPreview from './ContentPreview';
+import CompletionMessage from './CompletionMessage';
+
+axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
 /**
  * Content Creator modal component
  */
-const ContentCreatorModal = ({ show, onHide, pageID }) => {
+const ContentCreatorModal = ({ show, onHide, dataObjectID, dataObjectClass }) => {
   const [loading, setLoading] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [generatedContent, setGeneratedContent] = useState(null);
   const [error, setError] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
   const [pageStructure, setPageStructure] = useState([]);
-  const [step, setStep] = useState('prompt'); // 'prompt' -> 'preview' -> 'done'
-  const securityID = window.localStorage.getItem('ss-security-token');
+  const [step, setStep] = useState('prompt');
 
   /**
    * Fetch the structure of the page
@@ -23,10 +36,7 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
   const fetchPageStructure = async () => {
     try {
       const response = await axios.get('/admin/contentcreator/getPageStructure', {
-        params: { pageID },
-        headers: {
-          'X-SecurityToken': securityID,
-        },
+        params: { dataObjectID, dataObjectClass },
       });
 
       if (response.data.success) {
@@ -35,13 +45,12 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
         setError(response.data.error || 'Failed to fetch page structure');
       }
     } catch (err) {
-      console.error('Error fetching page structure:', err); // eslint-disable-line no-console
       setError('Failed to fetch page structure. Please try again.');
     }
   };
 
   useEffect(() => {
-    if (show && pageID) {
+    if (show && dataObjectID && dataObjectClass) {
       fetchPageStructure();
     }
     // Reset states when modal is opened
@@ -51,7 +60,7 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
       setError(null);
       setStep('prompt');
     }
-  }, [show, pageID]);
+  }, [show, dataObjectID, dataObjectClass]);
 
   /**
    * Generate content based on the prompt
@@ -66,17 +75,14 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
     setError(null);
 
     // Track generation start
-    Analytics.trackGenerationStarted(pageID, prompt);
+    Analytics.trackGenerationStarted(dataObjectID, dataObjectClass, prompt);
     const startTime = Date.now();
 
     try {
       const response = await axios.post('/admin/contentcreator/generate', {
-        pageID,
+        dataObjectID,
+        dataObjectClass,
         prompt,
-      }, {
-        headers: {
-          'X-SecurityToken': securityID,
-        },
       });
 
       if (response.data.success) {
@@ -89,21 +95,21 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
         setStep('preview');
 
         // Track successful generation
-        Analytics.trackGenerationCompleted(pageID, Date.now() - startTime, true);
+        Analytics.trackGenerationCompleted(dataObjectID, dataObjectClass, Date.now() - startTime, true);
       } else {
         setError(response.data.error || 'Failed to generate content');
 
         // Track failed generation
-        Analytics.trackGenerationCompleted(pageID, Date.now() - startTime, false);
-        Analytics.trackError(pageID, response.data.error || 'Failed to generate content');
+        Analytics.trackGenerationCompleted(dataObjectID, dataObjectClass, Date.now() - startTime, false);
+        Analytics.trackError(dataObjectID, dataObjectClass, response.data.error || 'Failed to generate content');
       }
     } catch (err) {
       console.error('Error generating content:', err); // eslint-disable-line no-console
       setError('Failed to generate content. Please try again.');
 
       // Track error
-      Analytics.trackGenerationCompleted(pageID, Date.now() - startTime, false);
-      Analytics.trackError(pageID, err.message || 'Network error');
+      Analytics.trackGenerationCompleted(dataObjectID, dataObjectClass, Date.now() - startTime, false);
+      Analytics.trackError(dataObjectID, dataObjectClass, err.message || 'Network error');
     } finally {
       setLoading(false);
     }
@@ -118,19 +124,16 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
 
     try {
       const response = await axios.post('/admin/contentcreator/applyContent', {
-        pageID,
+        dataObjectID,
+        dataObjectClass,
         content: generatedContent,
-      }, {
-        headers: {
-          'X-SecurityToken': securityID,
-        },
       });
 
       if (response.data.success) {
         setStep('done');
 
         // Track content application
-        Analytics.trackContentApplied(pageID);
+        Analytics.trackContentApplied(dataObjectID, dataObjectClass);
 
         // Reload the page to see the new content
         setTimeout(() => {
@@ -140,14 +143,14 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
         setError(response.data.error || 'Failed to apply content');
 
         // Track error
-        Analytics.trackError(pageID, response.data.error || 'Failed to apply content');
+        Analytics.trackError(dataObjectID, dataObjectClass, response.data.error || 'Failed to apply content');
       }
     } catch (err) {
       console.error('Error applying content:', err); // eslint-disable-line no-console
       setError('Failed to apply content to the page. Please try again.');
 
       // Track error
-      Analytics.trackError(pageID, err.message || 'Network error applying content');
+      Analytics.trackError(dataObjectID, dataObjectClass, err.message || 'Network error applying content');
     } finally {
       setLoading(false);
     }
@@ -161,187 +164,46 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
   };
 
   /**
-   * Handle pressing enter to submit the form
-   */
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleGenerate();
-    }
-  };
-
-  /**
-   * Render the page structure
-   */
-  const renderPageStructure = () => {
-    if (!pageStructure || pageStructure.length === 0) {
-      return <p>Loading page structure...</p>;
-    }
-
-    return (
-      <div className="content-creator-page-structure">
-        <h5>Page Structure</h5>
-        <ul>
-          {pageStructure.map((field) => (
-            <li key={field.name}> {/* Use field.name as key if unique */}
-              <strong>{field.title}</strong> ({field.name})
-              {field.description && <span> - {field.description}</span>}
-
-              {field.type === 'ElementalArea' && field.allowedElementTypes && (
-                <ul>
-                  {field.allowedElementTypes.map((elementType) => (
-                    <li key={`${field.name}-${elementType.title}`}> {/* Composite key */}
-                      <strong>{elementType.title}</strong>
-                      {elementType.fields && (
-                        <ul>
-                          {elementType.fields.map((elementField) => (
-                            <li key={`${field.name}-${elementType.title}-${elementField.name}`}> {/* Composite key */}
-                              <span>{elementField.title}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  };
-
-  /**
-   * Render the generated content
-   */
-  const renderGeneratedContent = () => {
-    if (!generatedContent) {
-      return null;
-    }
-
-    return (
-      <div className="content-creator-generated-content">
-        <h5>Generated Content</h5>
-        <pre>{JSON.stringify(generatedContent, null, 2)}</pre>
-      </div>
-    );
-  };
-
-  /**
-   * Render the chat history
-   */
-  const renderChatHistory = () => {
-    if (chatHistory.length === 0) {
-      return null;
-    }
-
-    return (
-      <div className="content-creator-chat-history">
-        {chatHistory.map((message, index) => (
-          // Using index as a key here is acceptable if messages don't reorder or have stable IDs
-          // If they do, a unique ID from the message object would be better.
-          <div key={message.id || `chat-msg-${index}`} className={`chat-message ${message.type}`}>
-            {message.type === 'prompt' ? (
-              <>
-                <div className="message-header">You</div>
-                <div className="message-content">{message.content}</div>
-              </>
-            ) : (
-              <>
-                <div className="message-header">AI Assistant</div>
-                <div className="message-content">
-                  <pre>{JSON.stringify(message.content, null, 2)}</pre>
-                </div>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  /**
    * Render the content based on the current step
    */
   const renderStepContent = () => {
     switch (step) {
       case 'prompt':
         return (
-          <>
-            <div className="prompt-container">
-              <Form>
-                <Form.Group controlId="content-creator-prompt">
-                  <Form.Label>Enter your content prompt</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    name="prompt" // Added name attribute
-                    rows={4}
-                    placeholder="Describe the content you'd like to generate for this page..."
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    disabled={loading}
-                  />
-                </Form.Group>
-              </Form>
+          <div className="prompt-step">
+            <PromptForm
+              prompt={prompt}
+              setPrompt={setPrompt}
+              onSubmit={handleGenerate}
+              loading={loading}
+              onCancel={onHide}
+            />
 
-              {renderPageStructure()}
-              {renderChatHistory()}
+            <div className="mt-4">
+              <PageStructure structure={pageStructure} />
             </div>
 
-            <div className="modal-footer">
-              <Button variant="secondary" onClick={onHide} disabled={loading}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleGenerate}
-                disabled={loading || !prompt.trim()}
-              >
-                {loading ? 'Generating...' : 'Generate Content'}
-              </Button>
-            </div>
-          </>
+            {chatHistory.length > 0 && (
+              <div className="mt-4">
+                <ChatHistory history={chatHistory} />
+              </div>
+            )}
+          </div>
         );
 
       case 'preview':
         return (
-          <>
-            <div className="preview-container">
-              {renderGeneratedContent()}
-            </div>
-
-            <div className="modal-footer">
-              <Button variant="secondary" onClick={handleBackToPrompt} disabled={loading}>
-                Back
-              </Button>
-              <Button
-                variant="success"
-                onClick={handleApplyContent}
-                disabled={loading}
-              >
-                {loading ? 'Applying...' : 'Apply Content to Page'}
-              </Button>
-            </div>
-          </>
+          <ContentPreview
+            content={generatedContent}
+            onApply={handleApplyContent}
+            onBack={handleBackToPrompt}
+            loading={loading}
+          />
         );
 
       case 'done':
         return (
-          <>
-            <div className="done-container">
-              <div className="alert alert-success">
-                Content has been successfully applied to the page!
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <Button variant="primary" onClick={onHide}>
-                Close
-              </Button>
-            </div>
-          </>
+          <CompletionMessage onClose={onHide} />
         );
 
       default:
@@ -353,24 +215,24 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
     <Modal
       show={show}
       onHide={onHide}
-      size="lg"
+      size="xl"
       aria-labelledby="content-creator-modal-title"
       centered
       className="content-creator-modal"
     >
-      <Modal.Header closeButton>
-        <Modal.Title id="content-creator-modal-title">
+      <ModalHeader>
+        <ModalTitle id="content-creator-modal-title">
           Generate Content with AI
-        </Modal.Title>
-      </Modal.Header>
+        </ModalTitle>
+      </ModalHeader>
 
-      <Modal.Body>
+      <ModalBody>
         {error && (
-          <div className="alert alert-danger">{error}</div>
+          <Alert variant="danger">{error}</Alert>
         )}
 
         {renderStepContent()}
-      </Modal.Body>
+      </ModalBody>
     </Modal>
   );
 };
@@ -378,7 +240,8 @@ const ContentCreatorModal = ({ show, onHide, pageID }) => {
 ContentCreatorModal.propTypes = {
   show: PropTypes.bool.isRequired,
   onHide: PropTypes.func.isRequired,
-  pageID: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  dataObjectID: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  dataObjectClass: PropTypes.string,
 };
 
 export default ContentCreatorModal;

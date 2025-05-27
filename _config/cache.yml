@@ -1,0 +1,15 @@
+---
+Name: content-creator-cache
+After:
+  - '#corecache'
+---
+SilverStripe\Core\Injector\Injector:
+  Psr\SimpleCache\CacheInterface.ContentCreator_StructureCache:
+    factory: SilverStripe\Core\Cache\CacheFactory
+    constructor:
+      namespace: "ContentCreator_StructureCache"
+      defaultLifetime: 3600  # 1 hour
+
+  KhalsaJio\ContentCreator\Services\ContentCacheService:
+    properties:
+      cacheName: "ContentCreator_StructureCache"

@@ -63,11 +63,12 @@ class ContentCreatorExtension extends Extension
 
         $generateButton = FormAction::create(
             'doGenerateContentAI',
-            _t('KhalsaJio\\ContentCreator\\Extensions\\ContentCreatorExtension.GENERATE_CONTENT_ACTION', 'Generate Content with AI')
+            _t('KhalsaJio\\ContentCreator\\Extensions\\ContentCreatorExtension.GENERATE_CONTENT_ACTION', 'AI Content')
         )
             ->setUseButtonTag(true)
             ->addExtraClass('btn btn-outline-info font-icon-rocket action_contentcreator')
-            ->setAttribute('data-record-id', $owner->ID);
+            ->setAttribute('data-record-id', $owner->ID)
+            ->setAttribute('data-record-class', $owner->ClassName);
 
         if ($actions->fieldByName('action_save')) {
             $actions->insertBefore('action_save', $generateButton);

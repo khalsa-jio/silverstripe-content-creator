@@ -5,8 +5,6 @@ namespace KhalsaJio\ContentCreator\Controllers;
 use SilverStripe\Control\Controller;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Control\HTTPResponse;
-use SilverStripe\Security\Member;
-use SilverStripe\Security\SecurityToken;
 use SilverStripe\Security\Permission;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Core\Config\Config;
@@ -22,9 +20,12 @@ class ContentCreatorAnalyticsController extends Controller
 {
     private static $url_segment = 'contentcreator';
 
+    private static $url_handlers = [
+        'POST analytics' => 'analytics',
+    ];
+
     private static $allowed_actions = [
         'analytics',
-        'report',
     ];
 
     /**
@@ -58,14 +59,18 @@ class ContentCreatorAnalyticsController extends Controller
             $event->EventData = json_encode($data['data'] ?? []);
             $event->MemberID = Security::getCurrentUser()->ID;
 
-            // If this is about a specific page, link to it
-            if (isset($data['data']['pageID'])) {
-                $pageID = $data['data']['pageID'];
-                $page = DataObject::get_by_id($pageID);
+            // If this is about a specific DataObject, link to it
+            if (isset($data['data']['dataObjectID']) && isset($data['data']['dataObjectClass'])) {
+                $dataObjectID = $data['data']['dataObjectID'];
+                $dataObjectClass = $data['data']['dataObjectClass'];
 
-                if ($page && $page->exists()) {
-                    $event->PageID = $page->ID;
-                    $event->PageClass = get_class($page);
+                // Ensure the class exists and is a DataObject
+                if (class_exists($dataObjectClass) && is_subclass_of($dataObjectClass, DataObject::class)) {
+                    $dataObject = DataObject::get_by_id($dataObjectClass, $dataObjectID);
+
+                    if ($dataObject && $dataObject->exists()) {
+                        $event->forObject($dataObject);
+                    }
                 }
             }
 
@@ -80,93 +85,6 @@ class ContentCreatorAnalyticsController extends Controller
     }
 
     /**
-     * Generate an analytics report
-     *
-     * @param HTTPRequest $request
-     * @return HTTPResponse
-     */
-    public function report(HTTPRequest $request)
-    {
-        // Only admins can view reports
-        if (!Permission::check('ADMIN')) {
-            return $this->jsonResponse(['error' => 'Permission denied'], 403);
-        }
-
-        $startDate = $request->getVar('start');
-        $endDate = $request->getVar('end');
-
-        $events = ContentCreationEvent::get();
-
-        if ($startDate) {
-            $events = $events->filter('Created:GreaterThanOrEqual', $startDate);
-        }
-
-        if ($endDate) {
-            $events = $events->filter('Created:LessThanOrEqual', $endDate);
-        }
-
-        // Group by type
-        $stats = [
-            'total' => $events->count(),
-            'by_type' => [],
-            'by_user' => [],
-            'by_page' => [],
-        ];
-
-        $types = $events->column('Type');
-        $types = array_count_values($types);
-
-        foreach ($types as $type => $count) {
-            $stats['by_type'][] = [
-                'type' => $type,
-                'count' => $count,
-            ];
-        }
-
-        // Group by user
-        $userEvents = $events->groupBy('MemberID');
-
-        foreach ($userEvents as $memberID => $memberEvents) {
-            if (!$memberID) continue;
-
-            $member = DataObject::get_by_id(Member::class, $memberID);
-
-            if (!$member) continue;
-
-            $stats['by_user'][] = [
-                'member_id' => $memberID,
-                'name' => $member->getName(),
-                'email' => $member->Email,
-                'count' => count($memberEvents),
-            ];
-        }
-
-        // Group by page
-        $pageEvents = $events->filter('PageID:GreaterThan', 0)->groupBy('PageID');
-
-        foreach ($pageEvents as $pageID => $pageEvents) {
-            if (!$pageID) continue;
-
-            $firstEvent = $pageEvents[0];
-
-            if (!$firstEvent->PageClass || !class_exists($firstEvent->PageClass)) continue;
-
-            $page = DataObject::get_by_id($firstEvent->PageClass, $pageID);
-
-            if (!$page) continue;
-
-            $stats['by_page'][] = [
-                'page_id' => $pageID,
-                'title' => $page->Title,
-                'type' => $page->ClassName,
-                'count' => count($pageEvents),
-            ];
-        }
-
-        return $this->jsonResponse($stats);
-    }
-
-    /**
      * Validate that the request is valid
      *
      * @param HTTPRequest $request
@@ -174,14 +92,7 @@ class ContentCreatorAnalyticsController extends Controller
      */
     protected function validateRequest(HTTPRequest $request)
     {
-        // Check CSRF token
-        $csrfToken = $request->getHeader('X-SecurityToken');
-        if (!SecurityToken::inst()->check($csrfToken)) {
-            return false;
-        }
-
-        // Check permissions
-        if (!Permission::check('CMS_ACCESS_CMSMain')) {
+        if (!$request->isAjax() || !Permission::check('CMS_ACCESS_CMSMain')) {
             return false;
         }
 

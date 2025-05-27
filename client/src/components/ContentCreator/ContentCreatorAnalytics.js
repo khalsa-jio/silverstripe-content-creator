@@ -8,7 +8,6 @@ class ContentCreatorAnalytics {
     this.enabled = true;
     this.endpoint = '/admin/contentcreator/analytics';
     this.events = [];
-    this.securityToken = window.localStorage.getItem('ss-security-token');
   }
 
   /**
@@ -33,7 +32,7 @@ class ContentCreatorAnalytics {
     const event = {
       type: eventType,
       timestamp: new Date().toISOString(),
-      data: { ...data }
+      data: { ...data },
     };
 
     this.events.push(event);
@@ -44,38 +43,42 @@ class ContentCreatorAnalytics {
 
   /**
    * Track generation started
-   * @param {string} pageID - The ID of the page being generated
+   * @param {string} dataObjectID - The ID of the DataObject being generated
+   * @param {string} dataObjectClass - The ClassName of the DataObject
    * @param {string} prompt - The prompt used for generation
    */
-  trackGenerationStarted(pageID, prompt) {
-    this.trackEvent('generation_started', { pageID, prompt });
+  trackGenerationStarted(dataObjectID, dataObjectClass, prompt) {
+    this.trackEvent('generation_started', { dataObjectID, dataObjectClass, prompt });
   }
 
   /**
    * Track generation completed
-   * @param {string} pageID - The ID of the page being generated
+   * @param {string} dataObjectID - The ID of the DataObject being generated
+   * @param {string} dataObjectClass - The ClassName of the DataObject
    * @param {number} duration - The duration in milliseconds
    * @param {boolean} success - Whether the generation was successful
    */
-  trackGenerationCompleted(pageID, duration, success) {
-    this.trackEvent('generation_completed', { pageID, duration, success });
+  trackGenerationCompleted(dataObjectID, dataObjectClass, duration, success) {
+    this.trackEvent('generation_completed', { dataObjectID, dataObjectClass, duration, success });
   }
 
   /**
    * Track content applied to page
-   * @param {string} pageID - The ID of the page being generated
+   * @param {string} dataObjectID - The ID of the DataObject being generated
+   * @param {string} dataObjectClass - The ClassName of the DataObject
    */
-  trackContentApplied(pageID) {
-    this.trackEvent('content_applied', { pageID });
+  trackContentApplied(dataObjectID, dataObjectClass) {
+    this.trackEvent('content_applied', { dataObjectID, dataObjectClass });
   }
 
   /**
    * Track error
-   * @param {string} pageID - The ID of the page being generated
+   * @param {string} dataObjectID - The ID of the DataObject being generated
+   * @param {string} dataObjectClass - The ClassName of the DataObject
    * @param {string} error - The error message
    */
-  trackError(pageID, error) {
-    this.trackEvent('error', { pageID, error });
+  trackError(dataObjectID, dataObjectClass, error) {
+    this.trackEvent('error', { dataObjectID, dataObjectClass, error });
   }
 
   /**
@@ -89,12 +92,12 @@ class ContentCreatorAnalytics {
       method: 'POST',
       contentType: 'application/json',
       headers: {
-        'X-SecurityToken': this.securityToken
+        'X-Requested-With': 'XMLHttpRequest',
       },
       data: JSON.stringify(event),
       error: (xhr, status, error) => {
         console.error('Failed to track content creator event:', error); // eslint-disable-line no-console
-      }
+      },
     });
   }
 }

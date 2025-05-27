@@ -2,22 +2,8 @@
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { ApolloProvider } from '@apollo/client';
 import { Provider } from 'react-redux';
 import ContentCreatorModal from '../components/ContentCreator/ContentCreatorModal';
-
-// Safely access Apollo client components
-const ConfigGraphQLClient = window.ss && window.ss.ConfigGraphQLClient ? window.ss.ConfigGraphQLClient : null;
-
-// Create Apollo client if possible
-let apolloClient = null;
-if (window.ss && window.ss.apolloClient) {
-  apolloClient = window.ss.apolloClient;
-} else if (ConfigGraphQLClient && typeof ConfigGraphQLClient.createApolloClient === 'function') {
-  apolloClient = ConfigGraphQLClient.createApolloClient();
-} else {
-  console.warn('Could not find or create Apollo client'); // eslint-disable-line no-console
-}
 
 let modalRoot = null; // To store the root for the modal
 
@@ -26,8 +12,43 @@ jQuery.entwine('ss', ($) => {
    * Initialize Content Creator on the GridField detail form
    */
   $('.cms-edit-form .btn.action_contentcreator').entwine({
-    onclick() {
+    onmatch() {
+      this._super();
+      this.prop('disabled', true).addClass('disabled');
+
+      const checkDependencies = () => {
+        const storeIsReady = !!(window.ss && window.ss.store);
+
+        if (storeIsReady) {
+          this.prop('disabled', false).removeClass('disabled');
+          if (this.data('dependencyCheckInterval')) {
+            clearInterval(this.data('dependencyCheckInterval'));
+            this.removeData('dependencyCheckInterval');
+          }
+        } else if (!this.data('dependencyCheckInterval')) {
+          const intervalId = setInterval(checkDependencies, 500);
+          this.data('dependencyCheckInterval', intervalId);
+        }
+      };
+
+      checkDependencies();
+    },
+    onunmatch() {
+      this._super();
+
+      if (this.data('dependencyCheckInterval')) {
+        clearInterval(this.data('dependencyCheckInterval'));
+      }
+    },
+    onclick(e) {
+      if (this.prop('disabled')) {
+        e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+
       const recordID = this.data('record-id');
+      const recordClass = this.data('record-class'); // Get the DataObject class
       const modalContainerElement = $('#content-creator-modal')[0];
 
       if (!modalContainerElement) {
@@ -50,21 +71,12 @@ jQuery.entwine('ss', ($) => {
       const handleClose = () => {
         modalRoot.render(
           <Provider store={window.ss.store}>
-            {apolloClient ? (
-              <ApolloProvider client={apolloClient}>
-                <ContentCreatorModal
-                  show={false}
-                  onHide={() => {}}
-                  pageID={recordID}
-                />
-              </ApolloProvider>
-            ) : (
-              <ContentCreatorModal
-                show={false}
-                onHide={() => {}}
-                pageID={recordID}
-              />
-            )}
+            <ContentCreatorModal
+              show={false}
+              onHide={() => {}}
+              dataObjectID={recordID}
+              dataObjectClass={recordClass}
+            />
           </Provider>
         );
       };
@@ -72,21 +84,12 @@ jQuery.entwine('ss', ($) => {
       // Render with or without Apollo provider depending on availability
       modalRoot.render(
         <Provider store={window.ss.store}>
-          {apolloClient ? (
-            <ApolloProvider client={apolloClient}>
-              <ContentCreatorModal
-                show
-                onHide={handleClose}
-                pageID={recordID}
-              />
-            </ApolloProvider>
-          ) : (
-            <ContentCreatorModal
-              show
-              onHide={handleClose}
-              pageID={recordID}
-            />
-          )}
+          <ContentCreatorModal
+            show
+            onHide={handleClose}
+            dataObjectID={recordID}
+            dataObjectClass={recordClass}
+          />
         </Provider>
       );
     }

@@ -2,12 +2,13 @@
 
 namespace KhalsaJio\ContentCreator\Services;
 
+use Exception;
+use GuzzleHttp\Client;
+use SilverStripe\Core\Config\Config;
+use SilverStripe\Core\Injector\Injector;
+use GuzzleHttp\Exception\RequestException;
 use SilverStripe\Core\Config\Configurable;
 use SilverStripe\Core\Injector\Injectable;
-use SilverStripe\Core\Config\Config;
-use GuzzleHttp\Client;
-use GuzzleHttp\Exception\RequestException;
-use Exception;
 
 /**
  * Service for interacting with Language Learning Models (LLMs)
@@ -49,7 +50,14 @@ class LLMService
      * @config
      * @var bool
      */
-    private static $use_ai_nexus = false;
+    private static $use_ai_nexus = true;
+
+    /**
+     * AI Nexus adapter 
+     * 
+     * @var \KhalsaJio\ContentCreator\Adapters\AINexusAdapter
+     */
+    private $aiNexusAdapter = null;
 
     /**
      * The HTTP client
@@ -63,6 +71,25 @@ class LLMService
      */
     public function __construct()
     {
+        // Try to use AI Nexus if configured to do so
+        if ($this->config()->get('use_ai_nexus')) {
+            try {
+                // Check if AI Nexus module is available
+                if (class_exists('KhalsaJio\\AI\\Nexus\\LLMClient')) {
+                    $this->aiNexusAdapter = Injector::inst()->get('KhalsaJio\\ContentCreator\\Adapters\\AINexusAdapter');
+                    return; // Successfully initialized with AI Nexus
+                }
+            } catch (Exception $e) {
+                // Fallback to default provider if AI Nexus fails
+                // Log error but continue with fallback
+                if (class_exists('Psr\\Log\\LoggerInterface')) {
+                    $logger = Injector::inst()->get('Psr\\Log\\LoggerInterface');
+                    $logger->warning('Failed to initialize AI Nexus: ' . $e->getMessage() . '. Falling back to default provider.');
+                }
+            }
+        }
+
+        // Fallback to direct integration
         $this->client = new Client();
         $this->setProvider($this->config()->get('default_provider'));
     }
@@ -263,19 +290,21 @@ class LLMService
     protected function generateWithAINexus(string $prompt, array $options = [])
     {
         try {
-            // Use the adapter instead of directly interacting with the AI Nexus client
-            $adapter = new \KhalsaJio\ContentCreator\Adapters\AINexusAdapter();
+            // Use the cached adapter if available
+            if (!$this->aiNexusAdapter) {
+                $this->aiNexusAdapter = Injector::inst()->get('KhalsaJio\\ContentCreator\\Adapters\\AINexusAdapter');
+            }
 
             // Merge provider config with options
             $mergedOptions = array_merge(
-                (array)$this->providerConfig,
+                (array)($this->providerConfig ?? []),
                 $options
             );
 
-            return $adapter->generateContent($prompt, $mergedOptions);
+            return $this->aiNexusAdapter->generateContent($prompt, $mergedOptions);
 
         } catch (Exception $e) {
-            throw new Exception("Error using AI Nexus: " . $e->getMessage());
+            throw new Exception("Error using AI Nexus: " . $e->getMessage(), 0, $e);
         }
     }
 }

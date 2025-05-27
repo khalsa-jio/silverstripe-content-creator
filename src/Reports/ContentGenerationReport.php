@@ -124,11 +124,11 @@ class ContentGenerationReport extends Report
                 }
             ],
             'Member.Title' => 'User',
-            'PageClass' => [
-                'title' => 'Page Type',
+            'DataObjectClassName' => [
+                'title' => 'Object Type',
                 'formatting' => function ($value, $item) {
-                    if ($item->PageClass) {
-                        $parts = explode('\\', $item->PageClass);
+                    if ($item->DataObjectClassName) {
+                        $parts = explode('\\', $item->DataObjectClassName);
                         return end($parts);
                     }
                     return null;

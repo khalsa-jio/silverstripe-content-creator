@@ -38,15 +38,14 @@ class ContentCreatorGridFieldItemRequestExtension extends GridFieldDetailForm_It
         $contentCreatorAction = GridField_FormAction::create(
             $this->gridField,
             'contentcreator' . $record->ID,
-            _t('KhalsaJio\\ContentCreator\\Extensions\\ContentCreatorExtension.GENERATE_CONTENT', 'Generate Content with AI'),
-            'contentcreator',
-            ['RecordID' => $record->ID]
+            _t('KhalsaJio\ContentCreator\Extensions\ContentCreatorExtension.GENERATE_CONTENT_SHORT', 'AI Content'),
         )
             ->addExtraClass('btn btn-outline-info font-icon-magic action_contentcreator')
+            ->setAttribute('data-record-class', $record->ClassName)
             ->setAttribute('data-record-id', $record->ID)
-            ->setUseButtonTag(true);
+            ->setAttribute('type', 'button');
 
-        $actions->insertAfter('action_doSave', $contentCreatorAction);
+        $actions->push($contentCreatorAction);
     }
 
     /**
@@ -54,7 +53,6 @@ class ContentCreatorGridFieldItemRequestExtension extends GridFieldDetailForm_It
      */
     public function contentcreator($data, $form)
     {
-        // This method is just a placeholder - the action is handled via JavaScript
         return Controller::curr()->redirectBack();
     }
 }

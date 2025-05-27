@@ -45,10 +45,11 @@ vendor/bin/sake dev/build flush=1
 ## 5. Start creating content
 
 1. Go to the CMS
-2. Create or edit a page
-3. Look for the "Generate Content with AI" button (magic wand icon)
-4. Enter a prompt describing the content you want to create
-5. Review and apply the generated content
+2. Navigate to the page you want to edit.
+3. Look for the "AI Content" button (rocket icon)
+4. Click the button to open the Content Creator modal.
+5. Enter a prompt describing the content you want to create
+6. Review and apply the generated content
 
 ## Next Steps
 

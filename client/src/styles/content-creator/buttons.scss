@@ -78,3 +78,15 @@
 @keyframes spinner-rotate {
   to { transform: rotate(360deg); }
 }
+
+.btn-outline-info.action_contentcreator {
+  &:hover {
+    background-color: #0275d8;
+    border-color: #0275d8;
+    color: white;
+  }
+  
+  .font-icon-magic {
+    margin-right: 0.5rem;
+  }
+}

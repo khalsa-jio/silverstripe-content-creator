@@ -6,7 +6,7 @@ An AI-powered content generation module for Silverstripe CMS that allows content
 
 ## How it works
 
-1. The module adds a "Generate Content with AI" button to the GridField Item request in the Silverstripe CMS.
+1. The module adds a "AI Content" button to the GridField Item request in the Silverstripe CMS.
 2. When clicked, a modal opens where users can enter a prompt describing the content they want to generate.
 3. The system analyzes the page structure (fields and elemental blocks if available).
 4. The LLM (Language Learning Model) generates appropriate content based on the prompt and page structure.
@@ -76,10 +76,10 @@ You can also use the Silverstripe AI Nexus module for more advanced LLM integrat
 ```yaml
 KhalsaJio\ContentCreator\Services\LLMService:
   use_ai_nexus: true
-  
+
 KhalsaJio\AI\Nexus\LLMClient:
   default_client: KhalsaJio\AI\Nexus\Provider\OpenAI
-  
+
 SilverStripe\Core\Injector\Injector:
   KhalsaJio\AI\Nexus\Provider\OpenAI:
     properties:
@@ -92,6 +92,8 @@ SilverStripe\Core\Injector\Injector:
 - [User Guide](docs/en/userguide.md)
 - [Developer Documentation](docs/en/developer.md)
 - [API Documentation](docs/en/api.md)
+- [AI Nexus Integration](docs/en/ai-nexus-integration.md)
+- [Caching](docs/en/caching.md)
 
 ## License
 

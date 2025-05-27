@@ -1,0 +1,98 @@
+// Content Creator Component Styles
+
+// Page Structure Component
+.content-creator-page-structure {
+  .accordion .card {
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 5px;
+  }
+
+  .accordion-icon {
+    transition: transform 0.2s;
+  }
+
+  .collapsed .accordion-icon {
+    transform: rotate(-90deg);
+  }
+
+  .inner-accordion .card {
+    background-color: #f9f9f9;
+  }
+
+  .list-group {
+    margin-right: 0;
+  }
+
+  .list-group-item {
+    background-color: transparent;
+    min-height: 40px;
+  }
+
+  .element-fields-list {
+    margin-bottom: 0;
+    
+    .element-field-item {
+      padding-top: 2px !important;
+      padding-bottom: 2px !important;
+      min-height: auto;
+    }
+  }
+}
+
+// Chat History Component
+.content-creator-chat-history {
+  .chat-message {
+    border-radius: 4px;
+    margin-bottom: 10px;
+  }
+}
+
+.chat-message {
+  &.prompt {
+    background-color: #f1f8ff;
+    border-left: 3px solid #0d6efd;
+  }
+
+  &.response {
+    background-color: #f8f9fa;
+    border-left: 3px solid #6c757d;
+  }
+}
+
+.message-content pre {
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  margin-top: 5px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+// Content Preview Component
+.content-preview-container {
+  .preview-card {
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+}
+
+.content-value {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+// Prompt Form Component
+.prompt-form-container textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+// Responsive adjustments
+@media screen and (width <= 768px) {
+  .modal-90w {
+    max-width: 100%;
+  }
+}

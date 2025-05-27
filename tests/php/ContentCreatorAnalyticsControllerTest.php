@@ -6,7 +6,6 @@ use SilverStripe\Security\Member;
 use SilverStripe\Security\Security;
 use SilverStripe\Core\Config\Config;
 use SilverStripe\Dev\FunctionalTest;
-use SilverStripe\Security\SecurityToken;
 use KhalsaJio\ContentCreator\Models\ContentCreationEvent;
 use KhalsaJio\ContentCreator\Controllers\ContentCreatorAnalyticsController;
 
@@ -60,9 +59,8 @@ class ContentCreatorAnalyticsControllerTest extends FunctionalTest
             json_encode($eventData)
         );
 
-        // Set security token
-        $token = SecurityToken::inst();
-        $request->addHeader('X-SecurityToken', $token->getValue());
+        // Set X-Requested-With header for AJAX request validation
+        $request->addHeader('X-Requested-With', 'XMLHttpRequest');
 
         $response = $controller->analytics($request);
 
@@ -112,9 +110,8 @@ class ContentCreatorAnalyticsControllerTest extends FunctionalTest
             json_encode($eventData)
         );
 
-        // Set security token
-        $token = SecurityToken::inst();
-        $request->addHeader('X-SecurityToken', $token->getValue());
+        // Set X-Requested-With header for AJAX request validation
+        $request->addHeader('X-Requested-With', 'XMLHttpRequest');
 
         // Call the analytics method
         $response = $controller->analytics($request);
@@ -165,7 +162,7 @@ class ContentCreatorAnalyticsControllerTest extends FunctionalTest
     {
         $controller = new ContentCreatorAnalyticsController();
 
-        // Test with missing security token
+        // Test with missing X-Requested-With header
         $request = new \SilverStripe\Control\HTTPRequest(
             'POST',
             'analytics',
@@ -177,7 +174,7 @@ class ContentCreatorAnalyticsControllerTest extends FunctionalTest
         $response = $controller->analytics($request);
         $this->assertEquals(400, $response->getStatusCode());
 
-        // Test with missing type
+        // Test with missing type but with X-Requested-With header
         $request = new \SilverStripe\Control\HTTPRequest(
             'POST',
             'analytics',
@@ -186,9 +183,8 @@ class ContentCreatorAnalyticsControllerTest extends FunctionalTest
             json_encode(['data' => []])
         );
 
-        // Set security token
-        $token = SecurityToken::inst();
-        $request->addHeader('X-SecurityToken', $token->getValue());
+        // Add X-Requested-With header
+        $request->addHeader('X-Requested-With', 'XMLHttpRequest');
 
         $response = $controller->analytics($request);
         $this->assertEquals(400, $response->getStatusCode());

@@ -1,104 +1,126 @@
 // Content Creator Modal styles
 .content-creator-modal {
-  width: 90%;
-  max-width: 800px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 1050;
-
   .modal-dialog {
-    height: 100%;
-    margin: 0;
-    max-width: none;
-    width: 100%;
-  }
-
-  .modal-content {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
-  }
-
-  .modal-header {
-    padding: 15px 20px;
-    background-color: var(--brand-primary);
-    color: #fff;
-
-    .modal-title {
-      font-weight: 600;
-      font-size: 18px;
-    }
-
-    .close {
-      color: #fff;
-      opacity: .8;
-
-      &:hover {
-        opacity: 1;
-      }
-    }
+    max-width: 800px;
+    width: 90%;
+    margin: 1rem auto;
   }
 
   .modal-body {
-    flex: 1;
-    padding: 20px;
+    padding: 1.5rem;
+    max-height: calc(90vh - 120px);
     overflow-y: auto;
   }
 
-  .modal-footer {
-    padding: 15px 20px;
-    border-top: 1px solid #ddd;
-    display: flex;
-    justify-content: space-between;
-
-    .btn-group {
-      display: flex;
-      gap: 10px;
-    }
+  .prompt-container, .preview-container, .done-container {
+    margin-bottom: 1rem;
   }
 
-  &__tabs {
-    margin-bottom: 20px;
+  .content-creator-page-structure {
+    margin-top: 1.5rem;
+    border-top: 1px solid #eee;
+    padding-top: 1rem;
 
-    .nav-tabs {
-      border-bottom: 2px solid #eee;
+    .card-body {
+      max-height: 400px;
+      overflow-y: auto;
     }
 
-    .nav-link {
-      border: none;
-      border-bottom: 3px solid transparent;
-      color: var(--text-muted);
-      padding: 10px 20px;
-      font-weight: 600;
+    ul {
+      padding-left: 1.5rem;
+    }
 
-      &.active {
-        border-bottom-color: var(--brand-primary);
-        color: var(--brand-primary);
+    .field-options {
+      margin-top: 0.25rem;
+
+      small {
+        color: #6c757d;
+        font-size: 0.75rem;
+      }
+
+      .badge {
+        font-weight: normal;
+        font-size: 0.75rem;
+        background-color: #f8f9fa;
+        border-color: #dee2e6;
+        color: #495057;
+        margin-right: 0.25rem;
+        margin-bottom: 0.25rem;
+        max-width: 100%;
+        white-space: normal;
+        text-align: left;
+        line-height: 1.2;
+      }
+
+      .text-info {
+        font-size: 0.75rem;
+        font-style: italic;
       }
     }
   }
 
-  &__preview {
-    background-color: #f8f9fa;
-    padding: 20px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    margin-top: 20px;
-    max-height: 300px;
-    overflow-y: auto;
-
-    h4 {
-      margin-bottom: 15px;
-      color: var(--brand-primary);
+  .content-creator-generated-content {
+    pre {
+      background-color: #f8f9fa;
+      padding: 1rem;
+      border-radius: 4px;
+      max-height: 400px;
+      overflow-y: auto;
     }
+  }
+
+  .content-preview-container {
+    .preview-card {
+      max-height: 500px;
+      overflow-y: auto;
+
+      .content-value {
+        word-break: break-word;
+      }
+    }
+  }
+
+  .content-creator-chat-history {
+    margin-top: 1.5rem;
+    border-top: 1px solid #eee;
+    padding-top: 1rem;
+
+    .chat-message {
+      margin-bottom: 1rem;
+
+      .message-header {
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+      }
+
+      .message-content {
+        background-color: #f8f9fa;
+        padding: 0.75rem;
+        border-radius: 4px;
+
+        pre {
+          margin: 0;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+        }
+      }
+
+      &.prompt {
+        .message-header {
+          color: #0275d8;
+        }
+      }
+
+      &.response {
+        .message-header {
+          color: #5cb85c;
+        }
+      }
+    }
+  }
+
+  .alert {
+    margin-bottom: 1rem;
   }
 }
 

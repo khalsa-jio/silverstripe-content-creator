@@ -2,18 +2,32 @@
 
 namespace KhalsaJio\ContentCreator\Services;
 
-use SilverStripe\Core\Config\Configurable;
-use SilverStripe\Core\Extensible;
-use SilverStripe\Core\Injector\Injectable;
-use SilverStripe\ORM\DataObject;
+use Exception;
+use Psr\Log\LoggerInterface;
 use SilverStripe\Core\ClassInfo;
+use SilverStripe\Forms\URLField;
+use SilverStripe\ORM\DataObject;
+use SilverStripe\Core\Extensible;
+use SilverStripe\Forms\DateField;
 use SilverStripe\Forms\FormField;
 use SilverStripe\Forms\TextField;
+use SilverStripe\Forms\EmailField;
+use Symfony\Component\Yaml\Parser;
+use SilverStripe\Forms\ListboxField;
+use SilverStripe\Forms\NumericField;
+use SilverStripe\Forms\CheckboxField;
+use SilverStripe\Forms\DatetimeField;
+use SilverStripe\Forms\DropdownField;
 use SilverStripe\Forms\TextareaField;
-use SilverStripe\Forms\HTMLEditor\HTMLEditorField;
-use Exception;
+use SilverStripe\Forms\OptionsetField;
+use SilverStripe\Core\Injector\Injector;
+use SilverStripe\Forms\TreeDropdownField;
+use SilverStripe\Core\Config\Configurable;
+use SilverStripe\Core\Injector\Injectable;
 use DNADesign\Elemental\Models\BaseElement;
 use DNADesign\Elemental\Models\ElementalArea;
+use SilverStripe\AssetAdmin\Forms\UploadField;
+use SilverStripe\Forms\HTMLEditor\HTMLEditorField;
 use DNADesign\Elemental\Extensions\ElementalPageExtension;
 use Symbiote\GridFieldExtensions\GridFieldAddNewMultiClass;
 
@@ -27,58 +41,110 @@ class ContentGeneratorService
     use Extensible;
 
     /**
+     * List of system field names to exclude from content generation
+     * 
+     * @config
+     * @var array
+     */
+    private static $excluded_field_names = [
+        'ID', 'Created', 'LastEdited', 'ClassName', 'URLSegment',
+        'ShowInMenus', 'ShowInSearch', 'Sort', 'ParentID', 'Version',
+        'RecordClassName', 'ParentClass', 'OwnerClassName', 'ElementID',
+        'CMSEditLink', 'ExtraClass', 'InlineEditable', 'Title'
+    ];
+
+    /**
      * @var LLMService
      */
     private $llmService;
 
-    public function __construct(LLMService $llmService = null)
+    /**
+     * @var ContentCacheService
+     */
+    private $cacheService;
+
+    /**
+     * @var LoggerInterface
+     */
+    private $logger;
+
+    public function __construct(LLMService $llmService = null, ContentCacheService $cacheService = null, LoggerInterface $logger = null)
     {
         $this->llmService = $llmService ?: LLMService::singleton();
+        $this->cacheService = $cacheService ?: Injector::inst()->get(ContentCacheService::class);
+        $this->logger = $logger ?: Injector::inst()->get(LoggerInterface::class);
     }
 
     /**
-     * Get the field structure for a given page
+     * Get the field structure for a given DataObject, using cache
      *
-     * @param DataObject $page
+     * @param DataObject $dataObject
+     * @param bool $refreshCache Whether to refresh the cache, defaults to false
+     * @return array The field structure
+     * @throws Exception If there's an error generating the field structure
+     */
+    public function getPageFieldStructure(DataObject $dataObject, bool $refreshCache = false): array
+    {
+        $cacheKey = $this->cacheService->generateCacheKey($dataObject);
+
+        if ($refreshCache) {
+            $this->cacheService->delete($cacheKey);
+        }
+
+        return $this->cacheService->getOrCreate($cacheKey, function () use ($dataObject) {
+            return $this->generatePageFieldStructure($dataObject);
+        });
+    }
+
+    /**
+     * This generates the field structure for a given DataObject, If not cached
+     *
+     * @param DataObject $dataObject
      * @return array
      */
-    public function getPageFieldStructure(DataObject $page): array
+    protected function generatePageFieldStructure(DataObject $dataObject): array
     {
         $fields = [];
-        $scaffoldFields = $page->getCMSFields();
+        $scaffoldFields = $dataObject->getCMSFields();
 
-        // Get basic field information (name, title, type)
         foreach ($scaffoldFields->dataFields() as $field) {
             if ($this->isContentField($field)) {
-                $fields[] = [
+                $fieldData = [
                     'name' => $field->getName(),
                     'title' => $field->Title(),
                     'type' => get_class($field),
                     'description' => $field->getDescription()
                 ];
+                
+                // Add field options if available
+                $options = $this->getFieldOptions($field);
+                if ($options !== null) {
+                    $fieldData['options'] = $options;
+                }
+                
+                $fields[] = $fieldData;
             }
         }
 
-        // Check for elemental blocks if the page has the ElementalPageExtension
-        if ($page->hasExtension(ElementalPageExtension::class)) {
-            $elementalAreas = $this->getElementalAreas($page);
+        // Check for elemental blocks if the DataObject(Page) has the ElementalPageExtension
+        if ($dataObject->hasExtension(ElementalPageExtension::class)) {
+            $elementalAreas = $this->getElementalAreas($dataObject);
             foreach ($elementalAreas as $areaName => $area) {
                 $fields[] = [
                     'name' => $areaName,
                     'title' => 'Content Blocks',
                     'type' => 'ElementalArea',
-                    'allowedElementTypes' => $this->getAllowedElementTypes($page, $areaName),
+                    'allowedElementTypes' => $this->getAllowedElementTypes($dataObject, $areaName),
                     'description' => 'Content blocks area'
                 ];
             }
         }
-
         return $fields;
     }
 
     /**
      * Check if the field is a content field that should be populated
-     *
+     * 
      * @param FormField $field
      * @return bool
      */
@@ -88,6 +154,16 @@ class ContentGeneratorService
             TextField::class,
             TextareaField::class,
             HTMLEditorField::class,
+            CheckboxField::class,
+            DropdownField::class,
+            TreeDropdownField::class,
+            OptionsetField::class,
+            EmailField::class,
+            URLField::class,
+            NumericField::class,
+            DateField::class,
+            DatetimeField::class,
+            ListboxField::class,
         ];
 
         $this->extend('updateContentFieldTypes', $contentFieldTypes);
@@ -99,17 +175,60 @@ class ContentGeneratorService
             }
         }
 
-        // Exclude certain field names by convention
-        $excludedFieldNames = [
-            'ID', 'Created', 'LastEdited', 'ClassName', 'URLSegment',
-            'ShowInMenus', 'ShowInSearch', 'Sort', 'ParentID', 'Version',
-        ];
+        $excludedFieldNames = $this->config()->get('excluded_field_names') ?: [];
 
+        $this->extend('updateExcludedFieldNames', $excludedFieldNames);
+
+        // If the field name is in the excluded list, it's not a content field
         if (in_array($field->getName(), $excludedFieldNames)) {
             return false;
         }
 
+        // Check field name patterns that indicate content fields
+        $contentFieldNamePatterns = [
+            '/content$/i',    // Fields ending with "content"
+            '/^content/i',    // Fields starting with "content"
+            '/text$/i',       // Fields ending with "text"
+            '/^text/i',       // Fields starting with "text"
+            '/description$/i' // Fields ending with "description"
+        ];
+
+        $this->extend('updateContentFieldNamePatterns', $contentFieldNamePatterns);
+
+        // Check if the field name matches any content field pattern
+        $fieldName = $field->getName();
+        foreach ($contentFieldNamePatterns as $pattern) {
+            if (preg_match($pattern, $fieldName)) {
+                return true;
+            }
+        }
+
         return false;
+    }
+
+    /**
+     * Get field options for fields like DropdownField, CheckboxField etc.
+     *
+     * @param FormField $field
+     * @return array|null
+     */
+    protected function getFieldOptions(FormField $field): ?array
+    {
+        if ($field instanceof DropdownField || $field instanceof ListboxField || $field instanceof OptionsetField) {
+            return $field->getSource();
+        }
+
+        if ($field instanceof CheckboxField) {
+            return ['0' => 'No', '1' => 'Yes'];
+        }
+
+        if ($field instanceof TreeDropdownField) {
+            $treeClass = $field->getSourceObject();
+            $titleField = $field->getLabelField();
+            return ['type' => 'TreeSelection', 'class' => $treeClass, 'titleField' => $titleField];
+        }
+
+        return null;
     }
 
     /**
@@ -155,27 +274,41 @@ class ContentGeneratorService
         // Try to find the GridField for the elemental area
         $gridField = $scaffoldFields->dataFieldByName($areaName);
         if (!$gridField) {
-            return $this->getAllElementTypes();
-        }
+            $gridField = $scaffoldFields->dataFieldByName($areaName . 'ID');
 
-        $config = $gridField->getConfig();
-        $addNewMultiClass = $config->getComponentByType(GridFieldAddNewMultiClass::class);
+            if (!$gridField && $page->hasExtension(ElementalPageExtension::class)) {
+                $relationName = $areaName;
+                if (method_exists($page, $relationName) && $page->$relationName() instanceof ElementalArea) {
+                    return $this->getAllElementTypes();
+                }
 
-        if ($addNewMultiClass) {
-            $classes = $addNewMultiClass->getClasses($gridField);
-            foreach ($classes as $className => $title) {
-                $allowedTypes[] = [
-                    'class' => $className,
-                    'title' => $title,
-                    'fields' => $this->getElementFields($className)
-                ];
+                return $this->getAllElementTypes();
             }
-        } else {
-            // If we can't find the specific allowed types, return all available element types
-            $allowedTypes = $this->getAllElementTypes();
         }
 
-        return $allowedTypes;
+        if ($gridField) {
+            $config = $gridField->getConfig();
+            $addNewMultiClass = $config->getComponentByType(GridFieldAddNewMultiClass::class);
+
+            if ($addNewMultiClass) {
+                $classes = $addNewMultiClass->getClasses($gridField);
+                foreach ($classes as $className => $title) {
+                    $normalizedClassName = $this->unsanitiseClassName($className);
+                    $allowedTypes[] = [
+                        'class' => $normalizedClassName,
+                        'title' => $title,
+                        'fields' => $this->getElementFields($normalizedClassName)
+                    ];
+                }
+
+                if (!empty($allowedTypes)) {
+                    return $allowedTypes;
+                }
+            }
+        }
+        
+
+        return $this->getAllElementTypes();
     }
 
     /**
@@ -234,16 +367,75 @@ class ContentGeneratorService
 
         foreach ($scaffoldFields->dataFields() as $field) {
             if ($this->isContentField($field)) {
-                $fields[] = [
+                $fieldData = [
                     'name' => $field->getName(),
-                    'title' => $field->Title(),
+                    'title' => $field->Title() ?: $field->getName(),
                     'type' => get_class($field),
-                    'description' => $field->getDescription()
+                    'description' => $field->getDescription() ?: '',
                 ];
+
+                // Add field options if available
+                $options = $this->getFieldOptions($field);
+                if ($options !== null) {
+                    $fieldData['options'] = $options;
+                }
+
+                $fields[] = $fieldData;
             }
         }
 
-        return $fields;
+        // Check if this element has DB fields that weren't captured by CMS fields
+        // This is important for custom elements that might not expose all fields in getCMSFields
+        $dbFields = $singleton->config()->get('db');
+        if (is_array($dbFields) && !empty($dbFields)) {
+            foreach ($dbFields as $dbFieldName => $dbFieldType) {
+                $alreadyIncluded = false;
+                foreach ($fields as $existingField) {
+                    if ($existingField['name'] === $dbFieldName) {
+                        $alreadyIncluded = true;
+                        break;
+                    }
+                }
+
+                $excludedFieldNames = $this->config()->get('excluded_field_names');
+
+                $this->extend('updateExcludedFieldNames', $excludedFieldNames);
+
+                if (!$alreadyIncluded && !in_array($dbFieldName, $excludedFieldNames)) {
+                    $fields[] = [
+                        'name' => $dbFieldName,
+                        'title' => $this->formatFieldTitle($dbFieldName),
+                        'type' => $dbFieldType,
+                        'description' => ''
+                    ];
+                }
+            }
+        }
+
+        $uniqueFields = [];
+        $fieldNames = [];
+
+        foreach ($fields as $field) {
+            if (!in_array($field['name'], $fieldNames)) {
+                $fieldNames[] = $field['name'];
+                $uniqueFields[] = $field;
+            }
+        }
+
+        return $uniqueFields;
+    }
+    
+    /**
+     * Format a field name into a human-readable title
+     * 
+     * @param string $fieldName
+     * @return string
+     */
+    protected function formatFieldTitle(string $fieldName): string
+    {
+        $title = preg_replace('/(?<=[a-z])(?=[A-Z])|_/', ' $0', $fieldName);
+        $title = str_replace('_', ' ', $title);
+        return ucfirst(trim($title));
     }
 
     /**
@@ -267,39 +459,44 @@ class ContentGeneratorService
             Based on this user prompt, generate appropriate content for all the fields:
             "$prompt"
 
-            Please return the content in YAML format that can be used to populate the page fields. For HTML content fields,
-            include proper HTML markup with paragraphs, headings, etc. For elemental areas, include YAML that defines
-            which blocks to create and what content to put in those blocks.
+            Please return the content in YAML format only. No explanatory text before or after the YAML.
+            
+            For HTML content fields, include proper HTML markup.
+            
+            For fields with options (like dropdown fields, checkbox fields, etc.), choose values from the provided options.
+            
+            For elemental areas, include which blocks to create with proper class names and what content to put in those blocks.
         EOT;
 
-        $generatedYaml = $this->llmService->generateContent($fullPrompt);
+        $generatedOutput = $this->llmService->generateContent($fullPrompt);
+        $parser = new Parser();
 
-        // Attempt to parse the YAML
+        // Try direct parsing first
         try {
-            $parser = new \Symfony\Component\Yaml\Parser();
-            $content = $parser->parse($generatedYaml);
-
-            // If the parser doesn't return an array or returns an empty array, throw an exception
-            if (!is_array($content) || empty($content)) {
-                throw new Exception("Failed to parse generated content as YAML");
-            }
-
-            return $content;
-        } catch (\Symfony\Component\Yaml\Exception\ParseException $e) {
-            // The YAML might be embedded in the response text, try to extract it
-            if (preg_match('/```(?:yaml|yml)(.*?)```/s', $generatedYaml, $matches)) {
-                $yamlContent = trim($matches[1]);
-                $content = $parser->parse($yamlContent);
-
-                if (!is_array($content) || empty($content)) {
-                    throw new Exception("Failed to parse extracted YAML from response");
-                }
-
+            $content = $parser->parse($generatedOutput);
+            if (is_array($content) && !empty($content)) {
                 return $content;
             }
-
-            throw new Exception("Failed to parse content: " . $e->getMessage());
+        } catch (Exception $e) {
+            // Try to extract YAML from code block if direct parsing fails
+            if (preg_match('/```(?:yaml|yml)?\\s*([\\s\\S]*?)```/s', $generatedOutput, $matches)) {
+                $yamlContent = trim($matches[1]);
+                try {
+                    $content = $parser->parse($yamlContent);
+                    if (is_array($content) && !empty($content)) {
+                        return $content;
+                    }
+                } catch (Exception $e) {
+                    // Failed to parse extracted content
+                    $this->logger->error("Failed to parse YAML from AI response: " . $e->getMessage(), [
+                        'response' => $generatedOutput,
+                        'yamlContent' => $yamlContent
+                    ]);
+                }
+            }
         }
+
+        throw new Exception("Could not parse valid YAML from the AI response. Please try again.");
     }
 
     /**
@@ -317,19 +514,71 @@ class ContentGeneratorService
                 $result .= "- {$field['title']} ({$field['name']}): A content blocks area that can contain the following types of blocks:\n";
 
                 foreach ($field['allowedElementTypes'] as $elementType) {
-                    $result .= "  - {$elementType['title']} ({$elementType['class']}): With fields:\n";
+                    // Unsanitize class name for proper display
+                    $className = $this->unsanitiseClassName($elementType['class']);
+                    $result .= "  - {$elementType['title']} ({$className}): With fields:\n";
 
                     foreach ($elementType['fields'] as $elementField) {
                         $description = $elementField['description'] ? " - {$elementField['description']}" : '';
-                        $result .= "    - {$elementField['title']} ({$elementField['name']}){$description}\n";
+                        $result .= "    - {$elementField['title']} ({$elementField['name']}){$description}";
+                        
+                        // Include field options if available
+                        if (isset($elementField['options'])) {
+                            $result .= " Options: " . $this->formatOptionsForPrompt($elementField['options']);
+                        }
+
+                        $result .= "\n";
                     }
                 }
             } else {
                 $description = $field['description'] ? " - {$field['description']}" : '';
-                $result .= "- {$field['title']} ({$field['name']}): Field type {$field['type']}{$description}\n";
+                $result .= "- {$field['title']} ({$field['name']}): Field type {$field['type']}{$description}";
+                
+                // Include field options if available
+                if (isset($field['options'])) {
+                    $result .= " Options: " . $this->formatOptionsForPrompt($field['options']);
+                }
+                
+                $result .= "\n";
             }
         }
 
         return $result;
+    }
+    
+    /**
+     * Format field options into a human-readable string for the prompt
+     * 
+     * @param array $options
+     * @return string
+     */
+    protected function formatOptionsForPrompt(array $options): string
+    {
+        if (isset($options['type']) && $options['type'] === 'TreeSelection') {
+            return "[Tree selection from {$options['class']}, using field '{$options['titleField']}']";
+        }
+
+        // For standard key-value option arrays
+        $formattedOptions = [];
+        foreach ($options as $key => $value) {
+            if (is_array($value)) {
+                $formattedOptions[] = "$key: [nested options]";
+            } else {
+                $formattedOptions[] = "$key: $value";
+            }
+        }
+
+        return "[" . implode(", ", $formattedOptions) . "]";
+    }
+
+    /**
+     * Unsanitise a model class name
+     *
+     * @param string $class
+     * @return string
+     */
+    protected function unsanitiseClassName($class)
+    {
+        return str_replace('-', '\\', $class ?? '');
     }
 }

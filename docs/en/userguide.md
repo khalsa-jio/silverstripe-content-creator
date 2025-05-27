@@ -8,7 +8,7 @@ The Content Creator module provides a simple way to generate content for your pa
 
 1. Go to the Pages section in the Silverstripe CMS.
 2. Create a new page or edit an existing page.
-3. On the page edit screen, click the "Generate Content with AI" button (indicated by a magic wand icon).
+3. On the page edit screen, click the "AI Content" button (indicated by a rocket icon).
 4. Enter a prompt describing the content you want to generate.
 5. Click the "Generate Content" button.
 6. Review the generated content.

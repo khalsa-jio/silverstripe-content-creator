@@ -1,0 +1,8 @@
+---
+Name: content-creator-routes
+After: '#coreroutes'
+---
+SilverStripe\Control\Director:
+  rules:
+    'admin/contentcreator/analytics': 'KhalsaJio\ContentCreator\Controllers\ContentCreatorAnalyticsController'
+    'admin/contentcreator//$Action': 'KhalsaJio\ContentCreator\Controllers\ContentCreatorController'

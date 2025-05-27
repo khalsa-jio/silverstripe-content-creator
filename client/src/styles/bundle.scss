@@ -1,14 +1,12 @@
 // Import core variables from silverstripe/admin
 @import 'variables';
 
-// Import component stylesheets
-@import '../components/ContentCreator/ContentCreatorModal.scss';
-
 // Import content creator specific styles
 @import 'content-creator/chat';
 @import 'content-creator/modal';
 @import 'content-creator/buttons';
 @import 'content-creator/analytics';
+@import 'content-creator/components';
 
 // Import admin styles for reports
 @import 'admin/pages/pages';
