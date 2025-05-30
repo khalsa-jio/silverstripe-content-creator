@@ -388,6 +388,10 @@ class ContentGeneratorService
         // This is important for custom elements that might not expose all fields in getCMSFields
         $dbFields = $singleton->config()->get('db');
         if (is_array($dbFields) && !empty($dbFields)) {
+            $excludedFieldNames = $this->config()->get('excluded_field_names');
+
+            $this->extend('updateExcludedFieldNames', $excludedFieldNames);
+
             foreach ($dbFields as $dbFieldName => $dbFieldType) {
                 $alreadyIncluded = false;
                 foreach ($fields as $existingField) {
@@ -396,10 +400,6 @@ class ContentGeneratorService
                         break;
                     }
                 }
-
-                $excludedFieldNames = $this->config()->get('excluded_field_names');
-
-                $this->extend('updateExcludedFieldNames', $excludedFieldNames);
 
                 if (!$alreadyIncluded && !in_array($dbFieldName, $excludedFieldNames)) {
                     $fields[] = [
@@ -460,11 +460,8 @@ class ContentGeneratorService
             "$prompt"
 
             Please return the content in YAML format only. No explanatory text before or after the YAML.
-            
             For HTML content fields, include proper HTML markup.
-            
             For fields with options (like dropdown fields, checkbox fields, etc.), choose values from the provided options.
-            
             For elemental areas, include which blocks to create with proper class names and what content to put in those blocks.
         EOT;
 

@@ -53,6 +53,14 @@ class LLMService
     private static $use_ai_nexus = true;
 
     /**
+     * Whether to use streaming mode for the API calls
+     *
+     * @config
+     * @var bool
+     */
+    private static $use_streaming = false;
+
+    /**
      * AI Nexus adapter 
      * 
      * @var \KhalsaJio\ContentCreator\Adapters\AINexusAdapter
@@ -302,6 +310,253 @@ class LLMService
             );
 
             return $this->aiNexusAdapter->generateContent($prompt, $mergedOptions);
+
+        } catch (Exception $e) {
+            throw new Exception("Error using AI Nexus: " . $e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
+     * Generate content using the LLM with streaming support
+     * 
+     * @param string $prompt The prompt to send to the LLM
+     * @param array $options Additional options
+     * @param callable|null $streamCallback Callback function for streaming responses
+     * @return string The generated content
+     * @throws Exception
+     */
+    public function generateContentStreaming(string $prompt, array $options = [], callable $streamCallback = null): string
+    {
+        // If no stream callback provided, fall back to non-streaming mode
+        if (!$streamCallback) {
+            return $this->generateContent($prompt, $options);
+        }
+        
+        // Check if AI Nexus is enabled
+        if ($this->config()->get('use_ai_nexus')) {
+            try {
+                return $this->generateWithAINexusStreaming($prompt, $options, $streamCallback);
+            } catch (Exception $e) {
+                // If AI Nexus fails, fall back to direct providers
+                // but only if the error is about the missing package
+                if (strpos($e->getMessage(), 'AI Nexus module not installed') === false) {
+                    throw $e;
+                }
+                // Otherwise continue with fallback
+            }
+        }
+
+        // Use the appropriate provider's API
+        switch ($this->currentProvider) {
+            case 'OpenAI':
+                return $this->generateWithOpenAIStreaming($prompt, $options, $streamCallback);
+
+            case 'Claude':
+                return $this->generateWithClaudeStreaming($prompt, $options, $streamCallback);
+
+            case 'Custom':
+                // Custom providers may not support streaming, so we'll just use non-streaming
+                $content = $this->generateWithCustomProvider($prompt, $options);
+                $streamCallback($content);
+                return $content;
+
+            default:
+                throw new Exception("Unknown LLM provider: {$this->currentProvider}");
+        }
+    }
+
+    /**
+     * Generate content using OpenAI's API with streaming support
+     *
+     * @param string $prompt
+     * @param array $options
+     * @param callable $streamCallback
+     * @return string The complete generated content
+     * @throws Exception
+     */
+    protected function generateWithOpenAIStreaming(string $prompt, array $options = [], callable $streamCallback): string
+    {
+        try {
+            $apiKey = $this->providerConfig['api_key'] ?? null;
+            if (!$apiKey) {
+                throw new Exception('OpenAI API key not configured');
+            }
+
+            $model = $options['model'] ?? $this->providerConfig['model'] ?? 'gpt-4o';
+            $maxTokens = $options['max_tokens'] ?? $this->providerConfig['max_tokens'] ?? 2000;
+            $temperature = $options['temperature'] ?? $this->providerConfig['temperature'] ?? 0.7;
+
+            $client = new Client();
+            
+            // Stream response back chunk by chunk
+            $response = $client->request('POST', 'https://api.openai.com/v1/chat/completions', [
+                'headers' => [
+                    'Authorization' => "Bearer {$apiKey}",
+                    'Content-Type' => 'application/json',
+                ],
+                'json' => [
+                    'model' => $model,
+                    'messages' => [
+                        ['role' => 'system', 'content' => 'You are a helpful content creation assistant.'],
+                        ['role' => 'user', 'content' => $prompt]
+                    ],
+                    'max_tokens' => $maxTokens,
+                    'temperature' => $temperature,
+                    'stream' => true,
+                ],
+                'stream' => true,
+            ]);
+
+            // Process the stream
+            $buffer = '';
+            $body = $response->getBody();
+            while (!$body->eof()) {
+                $chunk = $body->read(1024);
+                if (empty($chunk)) continue;
+                
+                // Split stream by lines
+                $lines = explode("\n", $chunk);
+                foreach ($lines as $line) {
+                    $line = trim($line);
+                    if (!$line || $line === 'data: [DONE]') continue;
+                    
+                    if (strpos($line, 'data: ') === 0) {
+                        $jsonData = substr($line, 6); // Remove 'data: ' prefix
+                        $data = json_decode($jsonData, true);
+                        
+                        if (isset($data['choices'][0]['delta']['content'])) {
+                            $textChunk = $data['choices'][0]['delta']['content'];
+                            $buffer .= $textChunk;
+                            $streamCallback($textChunk);
+                        }
+                    }
+                }
+            }
+            
+            // Return the complete content
+            return $buffer;
+        } catch (RequestException $e) {
+            $response = $e->getResponse();
+            $errorBody = $response ? (string) $response->getBody() : '';
+            $errorData = json_decode($errorBody, true);
+            $errorMessage = $errorData['error']['message'] ?? $e->getMessage();
+            
+            throw new Exception("OpenAI API Error: {$errorMessage}");
+        }
+    }
+
+    /**
+     * Generate content using Claude's API with streaming support
+     *
+     * @param string $prompt
+     * @param array $options
+     * @param callable $streamCallback
+     * @return string The complete generated content
+     * @throws Exception
+     */
+    protected function generateWithClaudeStreaming(string $prompt, array $options = [], callable $streamCallback): string
+    {
+        try {
+            $apiKey = $this->providerConfig['api_key'] ?? null;
+            if (!$apiKey) {
+                throw new Exception('Anthropic Claude API key not configured');
+            }
+
+            $model = $options['model'] ?? $this->providerConfig['model'] ?? 'claude-3-opus-20240229';
+            $maxTokens = $options['max_tokens'] ?? $this->providerConfig['max_tokens'] ?? 2000;
+            $temperature = $options['temperature'] ?? $this->providerConfig['temperature'] ?? 0.7;
+
+            $client = new Client();
+            
+            // Stream response back chunk by chunk
+            $response = $client->request('POST', 'https://api.anthropic.com/v1/messages', [
+                'headers' => [
+                    'x-api-key' => $apiKey,
+                    'anthropic-version' => '2023-06-01',
+                    'content-type' => 'application/json',
+                ],
+                'json' => [
+                    'model' => $model,
+                    'messages' => [
+                        ['role' => 'user', 'content' => $prompt]
+                    ],
+                    'max_tokens' => $maxTokens,
+                    'temperature' => $temperature,
+                    'stream' => true,
+                ],
+                'stream' => true,
+            ]);
+
+            // Process the stream
+            $buffer = '';
+            $body = $response->getBody();
+            while (!$body->eof()) {
+                $chunk = $body->read(1024);
+                if (empty($chunk)) continue;
+                
+                // Split stream by lines
+                $lines = explode("\n", $chunk);
+                foreach ($lines as $line) {
+                    $line = trim($line);
+                    if (!$line || $line === 'data: [DONE]') continue;
+                    
+                    if (strpos($line, 'data: ') === 0) {
+                        $jsonData = substr($line, 6); // Remove 'data: ' prefix
+                        $data = json_decode($jsonData, true);
+                        
+                        if (isset($data['delta']['text'])) {
+                            $textChunk = $data['delta']['text'];
+                            $buffer .= $textChunk;
+                            $streamCallback($textChunk);
+                        }
+                    }
+                }
+            }
+
+            // Return the complete content
+            return $buffer;
+        } catch (RequestException $e) {
+            $response = $e->getResponse();
+            $errorBody = $response ? (string) $response->getBody() : '';
+            $errorData = json_decode($errorBody, true);
+            $errorMessage = $errorData['error']['message'] ?? $e->getMessage();
+            
+            throw new Exception("Claude API Error: {$errorMessage}");
+        }
+    }
+
+    /**
+     * Generate content using the AI Nexus module with streaming
+     *
+     * @param string $prompt
+     * @param array $options
+     * @param callable $streamCallback
+     * @return string The complete generated content
+     * @throws Exception
+     */
+    protected function generateWithAINexusStreaming(string $prompt, array $options = [], callable $streamCallback): string
+    {
+        try {
+            // Use the cached adapter if available
+            if (!$this->aiNexusAdapter) {
+                $this->aiNexusAdapter = Injector::inst()->get('KhalsaJio\\ContentCreator\\Adapters\\AINexusAdapter');
+            }
+
+            // Merge provider config with options
+            $mergedOptions = array_merge(
+                (array)($this->providerConfig ?? []),
+                $options
+            );
+
+            // Check if the adapter has a streaming method
+            if (method_exists($this->aiNexusAdapter, 'generateContentStreaming')) {
+                return $this->aiNexusAdapter->generateContentStreaming($prompt, $mergedOptions, $streamCallback);
+            }
+            
+            // Fallback to non-streaming and simulate streaming
+            $content = $this->aiNexusAdapter->generateContent($prompt, $mergedOptions);
+            $streamCallback($content);
+            return $content;
 
         } catch (Exception $e) {
             throw new Exception("Error using AI Nexus: " . $e->getMessage(), 0, $e);

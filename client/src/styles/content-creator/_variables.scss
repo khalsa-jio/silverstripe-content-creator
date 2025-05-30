@@ -1,0 +1,45 @@
+// Content Creator Variables
+// This file contains all the variables used across the content creator module
+
+// Colors
+$cc-primary: var(--brand-primary, #0275d8);
+$cc-secondary: #6c757d;
+$cc-success: #5cb85c;
+$cc-info: #5bc0de;
+$cc-warning: #f0ad4e;
+$cc-danger: #d9534f;
+$cc-light: #f8f9fa;
+$cc-dark: #343a40;
+
+// Border colors
+$cc-border-light: #ddd;
+$cc-border-lighter: #eee;
+
+// Background colors
+$cc-bg-light: #f8f9fa;
+$cc-bg-lighter: #f1f1f1;
+$cc-bg-prompt: #f1f8ff;
+$cc-bg-response: #f0f7ff;
+
+// Spacing
+$cc-spacing-xs: 0.25rem;  // 4px
+$cc-spacing-sm: 0.5rem;   // 8px
+$cc-spacing-md: 1rem;     // 16px
+$cc-spacing-lg: 1.5rem;   // 24px
+$cc-spacing-xl: 2rem;     // 32px
+
+// Font sizes
+$cc-font-xs: 0.75rem;     // 12px
+$cc-font-sm: 0.875rem;    // 14px
+$cc-font-md: 1rem;        // 16px
+$cc-font-lg: 1.25rem;     // 20px
+$cc-font-xl: 1.5rem;      // 24px
+
+// Border radius
+$cc-border-radius: 4px;
+$cc-border-radius-lg: 6px;
+
+// Animation durations
+$cc-animation-duration: 0.2s;
+$cc-animation-duration-slow: 1s;
+$cc-animation-duration-slower: 1.5s;

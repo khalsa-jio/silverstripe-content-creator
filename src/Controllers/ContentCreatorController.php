@@ -2,6 +2,8 @@
 
 namespace KhalsaJio\ContentCreator\Controllers;
 
+use KhalsaJio\ContentCreator\Models\ContentCreationEvent;
+use KhalsaJio\ContentCreator\Services\LLMService;
 use SilverStripe\Control\Controller;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Core\Injector\Injector;
@@ -53,6 +55,7 @@ class ContentCreatorController extends Controller
             $dataObjectID = isset($jsonBody['dataObjectID']) ? $jsonBody['dataObjectID'] : null;
             $dataObjectClass = isset($jsonBody['dataObjectClass']) ? $jsonBody['dataObjectClass'] : null;
             $prompt = isset($jsonBody['prompt']) ? $jsonBody['prompt'] : null;
+            $streaming = isset($jsonBody['streaming']) ? (bool)$jsonBody['streaming'] : false;
         }
 
         if (!$dataObjectID || !$dataObjectClass || !$prompt) {
@@ -65,8 +68,15 @@ class ContentCreatorController extends Controller
             return $this->jsonResponse($dataObject, $dataObject['code']);
         }
 
+        // If streaming is requested, handle it with SSE
+        if ($streaming) {
+            return $this->generateStreamingResponse($dataObject, $prompt);
+        }
+
+        // Otherwise, generate content normally
+        $generator = Injector::inst()->get(ContentGeneratorService::class);
+
         try {
-            $generator = Injector::inst()->get(ContentGeneratorService::class);
             $content = $generator->generateContent($dataObject, $prompt);
 
             return $this->jsonResponse([
@@ -323,5 +333,116 @@ class ContentCreatorController extends Controller
         }
         
         return $json;
+    }
+
+    /**
+     * Generate content with streaming response (Server-Sent Events)
+     * 
+     * @param DataObject $dataObject The data object to generate content for
+     * @param string $prompt The prompt to use for content generation
+     * @return HTTPResponse
+     */
+    protected function generateStreamingResponse(DataObject $dataObject, string $prompt)
+    {
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+        header('Connection: keep-alive');
+        header('X-Accel-Buffering: no');  // Disable buffering for Nginx
+
+        // Send the initial response headers to the client
+        http_response_code(200);
+
+        try {
+            // Start buffering to collect content for analytics
+            $fullContent = [];
+
+            // Get LLM service directly to use streaming capability
+            $llmService = Injector::inst()->get(LLMService::class);
+
+            // Get structure for field mapping
+            $generator = Injector::inst()->get(ContentGeneratorService::class);
+            $pageStructure = $generator->getPageFieldStructure($dataObject);
+
+            // Begin the response
+            $this->sendSSEEvent('start', ['status' => 'started']);
+
+            // Prepare the context-aware system prompt
+            $systemPrompt = $generator->buildSystemPrompt($dataObject, $pageStructure);
+            $fullPrompt = $systemPrompt . "\n\n" . $prompt;
+
+            // Initialize the fields array that will store the content
+            $fields = [];
+            foreach ($pageStructure as $field) {
+                $fields[$field['name']] = '';
+            }
+
+            // Callback function to handle streaming chunks
+            $streamCallback = function($chunk) use (&$fullContent) {
+                $fullContent[] = $chunk;
+
+                // Send the chunk as an SSE event
+                $this->sendSSEEvent('chunk', ['text' => $chunk]);
+            };
+
+            // Generate content using streaming
+            $llmService->generateContentStreaming($fullPrompt, [], $streamCallback);
+
+            // Process the complete content once streaming is complete
+            $completeContent = implode('', $fullContent);
+            $parsedContent = $generator->parseGeneratedContent($completeContent, $pageStructure);
+
+            // Send the complete processed content
+            $this->sendSSEEvent('complete', ['content' => $parsedContent]);
+
+            // Record the analytics
+            $event = ContentCreationEvent::create([
+                'DataObjectID' => $dataObject->ID,
+                'DataObjectClass' => get_class($dataObject),
+                'Prompt' => $prompt,
+                'Success' => true
+            ]);
+            $event->write();
+
+            // End the response
+            $this->sendSSEEvent('end', ['status' => 'completed']);
+
+            // Make sure everything is sent
+            if (ob_get_level() > 0) {
+                ob_end_flush();
+            }
+            flush();
+
+            // The custom response doesn't need to be returned
+            exit();
+        } catch (\Exception $e) {
+            // In case of an error, send an error event
+            $this->sendSSEEvent('error', ['error' => $e->getMessage()]);
+
+            // Make sure everything is sent
+            if (ob_get_level() > 0) {
+                ob_end_flush();
+            }
+            flush();
+            exit();
+        }
+    }
+
+    /**
+     * Send a Server-Sent Event
+     * 
+     * @param string $event The event name
+     * @param array $data The data to send with the event
+     * @return void
+     */
+    protected function sendSSEEvent(string $event, array $data = []): void
+    {
+        echo "event: {$event}\n";
+        echo "data: " . json_encode($data) . "\n\n";
+        
+        // Flush the output buffer to send data immediately
+        if (ob_get_level() > 0) {
+            ob_flush();
+        }
+        flush();
     }
 }

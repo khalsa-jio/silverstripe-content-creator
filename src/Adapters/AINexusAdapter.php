@@ -162,6 +162,96 @@ class AINexusAdapter
     }
 
     /**
+     * Generate content using the AI Nexus client with streaming support
+     * @param string $prompt The prompt to send to the LLM
+     * @param array $options Additional options for the LLM request
+     * @param callable $streamCallback Callback function for handling streaming responses
+     * @return string|null Returns string when fallback to non-streaming, null when using streaming
+     * @throws Exception If there's an error during generation
+     */
+    public function generateContentStreaming(string $prompt, array $options = [], callable $streamCallback = null): ?string
+    {
+        if (!$streamCallback) {
+            // If no streaming callback is provided, fall back to standard generation
+            return $this->generateContent($prompt, $options);
+        }
+
+        try {
+            // Get the client name to determine how to format the request
+            $clientName = $this->client->getClientName();
+            $clientNameLower = strtolower($clientName);
+
+            if (strpos($clientNameLower, 'openai') !== false) {
+                // Check if the AI Nexus client supports streaming with OpenAI
+                if (method_exists($this->client, 'chatStream')) {
+                    // Prepare the OpenAI-style payload
+                    $payload = [
+                        'model' => $options['model'] ?? self::$fallback_model_map['OpenAI'],
+                        'messages' => [
+                            ['role' => 'system', 'content' => 'You are a helpful content creation assistant.'],
+                            ['role' => 'user', 'content' => $prompt]
+                        ],
+                        'max_tokens' => $options['max_tokens'] ?? 4000,
+                        'temperature' => $options['temperature'] ?? 0.7,
+                        'stream' => true
+                    ];
+
+                    // Call the streaming method if it exists
+                    $this->client->chatStream($payload, function($chunk) use ($streamCallback) {
+                        if (isset($chunk['choices'][0]['delta']['content'])) {
+                            $streamCallback($chunk['choices'][0]['delta']['content']);
+                        }
+                    });
+                    return null;
+                } else {
+                    // Fallback to non-streaming if streaming is not supported
+                    $content = $this->generateWithOpenAI($prompt, $options);
+                    $streamCallback($content);
+                    return $content;
+                }
+            } elseif (strpos($clientNameLower, 'claude') !== false || strpos($clientNameLower, 'anthropic') !== false) {
+                // Check if the AI Nexus client supports streaming with Claude
+                if (method_exists($this->client, 'chatStream')) {
+                    // Prepare the Claude-style payload
+                    $payload = [
+                        'model' => $options['model'] ?? self::$fallback_model_map['Claude'],
+                        'messages' => [
+                            ['role' => 'user', 'content' => $prompt]
+                        ],
+                        'max_tokens' => $options['max_tokens'] ?? 4000,
+                        'temperature' => $options['temperature'] ?? 0.7,
+                        'stream' => true
+                    ];
+
+                    // Call the streaming method if it exists
+                    $this->client->chatStream($payload, function($chunk) use ($streamCallback) {
+                        if (isset($chunk['delta']['text'])) {
+                            $streamCallback($chunk['delta']['text']);
+                        }
+                    });
+                    return null;
+                } else {
+                    // Fallback to non-streaming if streaming is not supported
+                    $content = $this->generateWithClaude($prompt, $options);
+                    $streamCallback($content);
+                    return $content;
+                }
+            } else {
+                // For generic providers, fall back to non-streaming
+                $this->logDebug("Streaming not supported for generic provider: $clientName");
+                $content = $this->generateContent($prompt, $options);
+                $streamCallback($content);
+                return $content;
+            }
+        } catch (Exception $e) {
+            if (!($e instanceof ConnectException || $e instanceof RequestException)) {
+                $this->logError("Error using AI Nexus (generateContentStreaming): " . $e->getMessage());
+            }
+            throw new Exception("Error generating streaming content via AI Nexus: " . $e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
      * Log a debug message
      *
      * @param string $message

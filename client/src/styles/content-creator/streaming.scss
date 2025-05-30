@@ -1,0 +1,45 @@
+// Streaming response styling
+.streaming-indicator {
+  color: $cc-primary;
+  animation: pulse $cc-animation-duration-slower infinite;
+
+  .spinner-grow {
+    width: $cc-spacing-sm;
+    height: $cc-spacing-sm;
+  }
+}
+
+.content-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+// Animation for the streaming indicator
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+// Cursor animation for streaming text
+.blinking-cursor::after {
+  content: '|';
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+// Utility classes for text formatting
+.whitespace-pre-wrap {
+  white-space: pre-wrap;
+}

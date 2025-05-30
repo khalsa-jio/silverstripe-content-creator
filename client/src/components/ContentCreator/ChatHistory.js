@@ -1,10 +1,19 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 
 /**
  * Component to display the chat history
  */
 const ChatHistory = ({ history }) => {
+  const messageEndRef = useRef(null);
+
+  // Auto scroll to the bottom when messages update
+  useEffect(() => {
+    if (messageEndRef.current && typeof messageEndRef.current.scrollIntoView === 'function') {
+      messageEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [history]);
+
   if (!history || history.length === 0) {
     return null;
   }
@@ -24,14 +33,27 @@ const ChatHistory = ({ history }) => {
             </>
           ) : (
             <>
-              <div className="message-header fw-bold mb-1">AI Assistant</div>
+              <div className="message-header fw-bold mb-1">
+                AI Assistant
+                {message.isStreaming && (
+                  <span className="streaming-indicator ms-2">
+                    <span className="spinner-grow spinner-grow-sm" role="status" aria-hidden="true" />
+                    <span className="ms-1">Generating...</span>
+                  </span>
+                )}
+              </div>
               <div className="message-content">
-                <pre className="pre-scrollable">{JSON.stringify(message.content, null, 2)}</pre>
+                {typeof message.content === 'string' ? (
+                  <div className="content-text whitespace-pre-wrap">{message.content}</div>
+                ) : (
+                  <pre className="pre-scrollable">{JSON.stringify(message.content, null, 2)}</pre>
+                )}
               </div>
             </>
           )}
         </div>
       ))}
+      <div ref={messageEndRef} />
     </div>
   );
 };
@@ -44,7 +66,8 @@ ChatHistory.propTypes = {
       content: PropTypes.oneOfType([
         PropTypes.string,
         PropTypes.object
-      ]).isRequired
+      ]).isRequired,
+      isStreaming: PropTypes.bool
     })
   ).isRequired
 };
