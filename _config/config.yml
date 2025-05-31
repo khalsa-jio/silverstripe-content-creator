@@ -3,24 +3,6 @@ Name: content-creator
 After:
   - 'cms-config'
 ---
-KhalsaJio\ContentCreator\Services\LLMService:
-  use_ai_nexus: true
-  default_provider: 'OpenAI'
-
-SilverStripe\Core\Injector\Injector:
-  KhalsaJio\ContentCreator\Services\LLMService:
-    providers:
-        OpenAI:
-          api_key: '`OPENAI_API_KEY`'
-          model: 'gpt-4o'
-          max_tokens: 4000
-          temperature: 0.7
-        Claude:
-          api_key: '`ANTHROPIC_API_KEY`'
-          model: 'claude-3-opus-20240229'
-          max_tokens: 4000
-          temperature: 0.7
-
 KhalsaJio\ContentCreator\Extensions\ContentCreatorExtension:
   enabled_page_types:
     - SilverStripe\CMS\Model\SiteTree
@@ -39,3 +21,6 @@ SilverStripe\Admin\LeftAndMain:
     - 'khalsa-jio/silverstripe-content-creator:client/dist/js/bundle.js'
   extra_requirements_css:
     - 'khalsa-jio/silverstripe-content-creator:client/dist/styles/bundle.css'
+
+# SilverStripe\View\SSViewer:
+#   source_file_comments: false

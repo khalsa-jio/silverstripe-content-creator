@@ -3,9 +3,8 @@
 namespace KhalsaJio\ContentCreator\Tests;
 
 use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
-use KhalsaJio\ContentCreator\Services\LLMService;
+use KhalsaJio\AI\Nexus\LLMClient;
 use SilverStripe\Dev\SapphireTest;
-use SilverStripe\CMS\Model\SiteTree;
 use SilverStripe\Core\Injector\Injector;
 use ReflectionMethod;
 
@@ -44,14 +43,25 @@ class ContentGeneratorServiceTest extends SapphireTest
      */
     public function testGetPageFieldStructure()
     {
-        // Create a mock LLM service
-        $mockLLMService = $this->createMock(LLMService::class);
+        // Create a mock LLM client
+        $mockLLMClient = $this->getMockBuilder(LLMClient::class)
+            ->disableOriginalConstructor()
+            ->getMock();
 
-        // Create the service with the mock LLM service
-        $service = new ContentGeneratorService($mockLLMService);
+        // Mock the __call method since LLMClient uses magic methods
+        $mockLLMClient->method('__call')
+            ->willReturn([
+                'content' => json_encode([
+                    'Title' => 'Generated Title',
+                    'Content' => 'Generated content'
+                ])
+            ]);
+
+        // Create the service with the mock LLM client
+        $service = new ContentGeneratorService($mockLLMClient);
 
         // Create a test page
-        $page = SiteTree::create();
+        $page = \Page::create();
         $page->Title = 'Test Page';
         $page->Content = '<p>Test content</p>';
         $page->write();

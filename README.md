@@ -45,22 +45,20 @@ After installation, run a dev/build to ensure all database tables and extensions
 You can configure the module via YAML configuration. Create a file in your project's `_config` directory (e.g., `content-creator.yml`) with the following settings:
 
 ```yaml
-KhalsaJio\ContentCreator\Services\LLMService:
-  default_provider: 'OpenAI'  # Options: 'OpenAI', 'Claude', 'Custom'
-  providers:
-    OpenAI:
-      api_key: 'your-api-key-here' # Environment variable recommended: '`OPENAI_API_KEY`'
-      model: 'gpt-4o'  # Or another available model
-      max_tokens: 4000
-      temperature: 0.7
-    Claude:
-      api_key: 'your-api-key-here' # Environment variable recommended: '`ANTHROPIC_API_KEY`'
-      model: 'claude-3-opus-20240229'
-      max_tokens: 4000
-      temperature: 0.7
-    Custom:
-      class: 'Your\Custom\LLMProvider'
-      api_key: 'your-api-key-here'
+---
+Name: my-content-creator-config
+After:
+  - '#content-creator'
+---
+
+KhalsaJio\AI\Nexus\LLMClient:
+  default_client: KhalsaJio\AI\Nexus\Provider\OpenAI
+
+SilverStripe\Core\Injector\Injector:
+  KhalsaJio\AI\Nexus\Provider\OpenAI:
+    properties:
+      ApiKey: '`OPENAI_API_KEY`'
+      Model: 'gpt-4o'
 
 KhalsaJio\ContentCreator\Extensions\ContentCreatorExtension:
   enabled_page_types:
@@ -71,28 +69,10 @@ KhalsaJio\ContentCreator\Extensions\ContentCreatorExtension:
     # Add page types that should never show the content creator button
 ```
 
-You can also use the Silverstripe AI Nexus module for more advanced LLM integrations:
-
-```yaml
-KhalsaJio\ContentCreator\Services\LLMService:
-  use_ai_nexus: true
-
-KhalsaJio\AI\Nexus\LLMClient:
-  default_client: KhalsaJio\AI\Nexus\Provider\OpenAI
-
-SilverStripe\Core\Injector\Injector:
-  KhalsaJio\AI\Nexus\Provider\OpenAI:
-    properties:
-      ApiKey: '`OPENAI_API_KEY`'
-      Model: 'gpt-4o'
-```
-
 ## Documentation
 
 - [User Guide](docs/en/userguide.md)
 - [Developer Documentation](docs/en/developer.md)
-- [API Documentation](docs/en/api.md)
-- [AI Nexus Integration](docs/en/ai-nexus-integration.md)
 - [Caching](docs/en/caching.md)
 
 ## License

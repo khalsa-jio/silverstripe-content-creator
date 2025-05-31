@@ -20,13 +20,13 @@ use SilverStripe\Forms\DatetimeField;
 use SilverStripe\Forms\DropdownField;
 use SilverStripe\Forms\TextareaField;
 use SilverStripe\Forms\OptionsetField;
+use KhalsaJio\AI\Nexus\LLMClient;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Forms\TreeDropdownField;
 use SilverStripe\Core\Config\Configurable;
 use SilverStripe\Core\Injector\Injectable;
 use DNADesign\Elemental\Models\BaseElement;
 use DNADesign\Elemental\Models\ElementalArea;
-use SilverStripe\AssetAdmin\Forms\UploadField;
 use SilverStripe\Forms\HTMLEditor\HTMLEditorField;
 use DNADesign\Elemental\Extensions\ElementalPageExtension;
 use Symbiote\GridFieldExtensions\GridFieldAddNewMultiClass;
@@ -42,7 +42,7 @@ class ContentGeneratorService
 
     /**
      * List of system field names to exclude from content generation
-     * 
+     *
      * @config
      * @var array
      */
@@ -54,9 +54,9 @@ class ContentGeneratorService
     ];
 
     /**
-     * @var LLMService
+     * @var LLMClient
      */
-    private $llmService;
+    private $llmClient;
 
     /**
      * @var ContentCacheService
@@ -68,9 +68,9 @@ class ContentGeneratorService
      */
     private $logger;
 
-    public function __construct(LLMService $llmService = null, ContentCacheService $cacheService = null, LoggerInterface $logger = null)
+    public function __construct(LLMClient $llmClient = null, ContentCacheService $cacheService = null, LoggerInterface $logger = null)
     {
-        $this->llmService = $llmService ?: LLMService::singleton();
+        $this->llmClient = $llmClient ?: Injector::inst()->get(LLMClient::class);
         $this->cacheService = $cacheService ?: Injector::inst()->get(ContentCacheService::class);
         $this->logger = $logger ?: Injector::inst()->get(LoggerInterface::class);
     }
@@ -115,13 +115,13 @@ class ContentGeneratorService
                     'type' => get_class($field),
                     'description' => $field->getDescription()
                 ];
-                
+
                 // Add field options if available
                 $options = $this->getFieldOptions($field);
                 if ($options !== null) {
                     $fieldData['options'] = $options;
                 }
-                
+
                 $fields[] = $fieldData;
             }
         }
@@ -144,7 +144,7 @@ class ContentGeneratorService
 
     /**
      * Check if the field is a content field that should be populated
-     * 
+     *
      * @param FormField $field
      * @return bool
      */
@@ -154,13 +154,11 @@ class ContentGeneratorService
             TextField::class,
             TextareaField::class,
             HTMLEditorField::class,
-            CheckboxField::class,
             DropdownField::class,
             TreeDropdownField::class,
             OptionsetField::class,
             EmailField::class,
             URLField::class,
-            NumericField::class,
             DateField::class,
             DatetimeField::class,
             ListboxField::class,
@@ -306,7 +304,6 @@ class ContentGeneratorService
                 }
             }
         }
-        
 
         return $this->getAllElementTypes();
     }
@@ -424,10 +421,10 @@ class ContentGeneratorService
 
         return $uniqueFields;
     }
-    
+
     /**
      * Format a field name into a human-readable title
-     * 
+     *
      * @param string $fieldName
      * @return string
      */
@@ -465,7 +462,24 @@ class ContentGeneratorService
             For elemental areas, include which blocks to create with proper class names and what content to put in those blocks.
         EOT;
 
-        $generatedOutput = $this->llmService->generateContent($fullPrompt);
+        // Prepare the message payload for LLMClient
+        $payload = [
+            'messages' => [
+                ['role' => 'system', 'content' => 'You are a helpful content creation assistant.'],
+                ['role' => 'user', 'content' => $fullPrompt]
+            ],
+        ];
+
+        // Call the LLMClient
+        $response = $this->llmClient->chat($payload, 'chat/completions');
+
+        // Extract the generated content from the response
+        if (isset($response['error']) && !empty($response['error'])) {
+            $errorMessage = is_array($response['error']) ? ($response['error']['message'] ?? 'Unknown error') : $response['error'];
+            throw new Exception("Error generating content: " . $errorMessage);
+        }
+
+        $generatedOutput = $response['content'] ?? '';
         $parser = new Parser();
 
         // Try direct parsing first
@@ -496,6 +510,30 @@ class ContentGeneratorService
         throw new Exception("Could not parse valid YAML from the AI response. Please try again.");
     }
 
+    public function buildSystemPrompt(DataObject $dataObject): string
+    {
+        $structure = $this->getPageFieldStructure($dataObject);
+        $structureDescription = $this->formatStructureForPrompt($structure);
+
+        $systemPrompt = <<<EOT
+            You are an AI content generator for SilverStripe pages. Your task is to generate structured content based on the provided page structure.
+
+            The page structure is as follows:
+
+            $structureDescription
+
+            Use this structure to generate content that fits the fields, including:
+            - Text fields should contain relevant text.
+            - HTML fields should include proper HTML markup.
+            - Dropdowns and options should select from the provided options.
+            - Elemental areas should specify which blocks to create and their content.
+
+            Always return the generated content in YAML format only, without any additional text.
+        EOT;
+
+        return $systemPrompt;
+    }
+
     /**
      * Format the page structure in a way that can be included in a prompt
      *
@@ -518,7 +556,7 @@ class ContentGeneratorService
                     foreach ($elementType['fields'] as $elementField) {
                         $description = $elementField['description'] ? " - {$elementField['description']}" : '';
                         $result .= "    - {$elementField['title']} ({$elementField['name']}){$description}";
-                        
+
                         // Include field options if available
                         if (isset($elementField['options'])) {
                             $result .= " Options: " . $this->formatOptionsForPrompt($elementField['options']);
@@ -530,22 +568,22 @@ class ContentGeneratorService
             } else {
                 $description = $field['description'] ? " - {$field['description']}" : '';
                 $result .= "- {$field['title']} ({$field['name']}): Field type {$field['type']}{$description}";
-                
+
                 // Include field options if available
                 if (isset($field['options'])) {
                     $result .= " Options: " . $this->formatOptionsForPrompt($field['options']);
                 }
-                
+
                 $result .= "\n";
             }
         }
 
         return $result;
     }
-    
+
     /**
      * Format field options into a human-readable string for the prompt
-     * 
+     *
      * @param array $options
      * @return string
      */
@@ -577,5 +615,44 @@ class ContentGeneratorService
     protected function unsanitiseClassName($class)
     {
         return str_replace('-', '\\', $class ?? '');
+    }
+
+    public function parseGeneratedContent(string $content): array
+    {
+        // If the content is already JSON/array like, return it as is
+        if (is_array($content)) {
+            return $content;
+        }
+
+        // Try to parse as YAML which seems to be the expected format from AI response
+        $parser = new Parser();
+
+        try {
+            // Direct parsing attempt
+            $parsed = $parser->parse($content);
+            if (is_array($parsed) && !empty($parsed)) {
+                return $parsed;
+            }
+        } catch (Exception $e) {
+            // Try to extract YAML from code block if direct parsing fails
+            if (preg_match('/```(?:yaml|yml)?\\s*([\\s\\S]*?)```/s', $content, $matches)) {
+                try {
+                    $yamlContent = trim($matches[1]);
+                    $parsed = $parser->parse($yamlContent);
+                    if (is_array($parsed) && !empty($parsed)) {
+                        return $parsed;
+                    }
+                } catch (Exception $innerException) {
+                    $this->logger->error("Failed to parse YAML from extracted code block", [
+                        'exception' => $innerException->getMessage(),
+                        'content' => $content
+                    ]);
+                }
+            }
+        }
+
+        // If cannot parse, make a simple structure with the content
+        $simpleContent = ['Content' => $content];
+        return $simpleContent;
     }
 }

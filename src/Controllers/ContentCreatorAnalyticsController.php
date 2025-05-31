@@ -2,16 +2,17 @@
 
 namespace KhalsaJio\ContentCreator\Controllers;
 
-use SilverStripe\Control\Controller;
-use SilverStripe\Control\HTTPRequest;
-use SilverStripe\Control\HTTPResponse;
-use SilverStripe\Security\Permission;
-use SilverStripe\Core\Injector\Injector;
-use SilverStripe\Core\Config\Config;
-use KhalsaJio\ContentCreator\Models\ContentCreationEvent;
-use SilverStripe\Security\Security;
-use SilverStripe\ORM\DataObject;
 use Psr\Log\LoggerInterface;
+use SilverStripe\ORM\DataObject;
+use SilverStripe\Security\Member;
+use SilverStripe\Security\Security;
+use SilverStripe\Control\Controller;
+use SilverStripe\Core\Config\Config;
+use SilverStripe\Control\HTTPRequest;
+use SilverStripe\Security\Permission;
+use SilverStripe\Control\HTTPResponse;
+use SilverStripe\Core\Injector\Injector;
+use KhalsaJio\ContentCreator\Models\ContentCreationEvent;
 
 /**
  * Controller for handling content creation analytics
@@ -22,10 +23,12 @@ class ContentCreatorAnalyticsController extends Controller
 
     private static $url_handlers = [
         'POST analytics' => 'analytics',
+        'GET report' => 'report',
     ];
 
     private static $allowed_actions = [
         'analytics',
+        'report',
     ];
 
     /**
@@ -53,15 +56,21 @@ class ContentCreatorAnalyticsController extends Controller
         }
 
         try {
+            // Ensure we have a current user
+            $currentUser = Security::getCurrentUser();
+            if (!$currentUser) {
+                return $this->jsonResponse(['error' => 'User not authenticated'], 401);
+            }
+
             // Record the event
             $event = ContentCreationEvent::create();
             $event->Type = $data['type'];
             $event->EventData = json_encode($data['data'] ?? []);
-            $event->MemberID = Security::getCurrentUser()->ID;
+            $event->MemberID = $currentUser->ID;
 
             // If this is about a specific DataObject, link to it
             if (isset($data['data']['dataObjectID']) && isset($data['data']['dataObjectClass'])) {
-                $dataObjectID = $data['data']['dataObjectID'];
+                $dataObjectID = (int)$data['data']['dataObjectID'];
                 $dataObjectClass = $data['data']['dataObjectClass'];
 
                 // Ensure the class exists and is a DataObject
@@ -79,9 +88,103 @@ class ContentCreatorAnalyticsController extends Controller
             return $this->jsonResponse(['success' => true]);
         } catch (\Exception $e) {
             Injector::inst()->get(LoggerInterface::class)
-                ->debug('Error recording analytics: ' . $e->getMessage());
-            return $this->jsonResponse(['success' => true]);
+                ->error('Error recording analytics: ' . $e->getMessage());
+            return $this->jsonResponse(['error' => 'Internal server error'], 500);
         }
+    }
+
+
+    /**
+     * Generate an analytics report
+     *
+     * @param HTTPRequest $request
+     * @return HTTPResponse
+     */
+    public function report(HTTPRequest $request)
+    {
+        // Check if the user is authenticated
+        if (!Security::getCurrentUser()) {
+            // Redirect to login page if not authenticated
+            return $this->redirect(Security::login_url());
+        }
+
+        // Only admins can view reports
+        if (!Permission::check('ADMIN')) {
+            return $this->jsonResponse(['error' => 'Permission denied'], 403);
+        }
+
+        $startDate = $request->getVar('start');
+        $endDate = $request->getVar('end');
+
+        $events = ContentCreationEvent::get();
+
+        if ($startDate) {
+            $events = $events->filter('Created:GreaterThanOrEqual', $startDate);
+        }
+
+        if ($endDate) {
+            $events = $events->filter('Created:LessThanOrEqual', $endDate);
+        }
+
+        // Group by type
+        $stats = [
+            'total' => $events->count(),
+            'by_type' => [],
+            'by_user' => [],
+            'by_dataobject' => [],
+        ];
+
+        $types = $events->column('Type');
+        $types = array_count_values($types);
+
+        foreach ($types as $type => $count) {
+            $stats['by_type'][] = [
+                'type' => $type,
+                'count' => $count,
+            ];
+        }
+
+        // Group by user
+        $userEvents = $events->groupBy('MemberID');
+
+        foreach ($userEvents as $memberID => $memberEvents) {
+            if (!$memberID) continue;
+
+            $member = DataObject::get_by_id(Member::class, $memberID);
+
+            if (!$member) continue;
+
+            $stats['by_user'][] = [
+                'member_id' => $memberID,
+                'name' => $member->getName(),
+                'email' => $member->Email,
+                'count' => count($memberEvents),
+            ];
+        }
+
+        // Group by page
+        $pageEvents = $events->filter('RelatedObjectID:GreaterThan', 0)->groupBy('RelatedObjectID');
+
+        foreach ($pageEvents as $pageID => $pageEvents) {
+            if (!$pageID) continue;
+
+            $firstEvent = $pageEvents[0];
+
+            if (!$firstEvent->RelatedObjectClass || !class_exists($firstEvent->RelatedObjectClass)) continue;
+
+            $page = DataObject::get_by_id($firstEvent->RelatedObjectClass, $pageID);
+
+            if (!$page) continue;
+
+            $stats['by_dataobject'][] = [
+                'dataobject_id' => $pageID,
+                'title' => $page->Title,
+                'type' => $page->ClassName,
+                'count' => count($pageEvents),
+            ];
+        }
+
+        return $this->jsonResponse($stats);
     }
 
     /**
@@ -110,6 +213,7 @@ class ContentCreatorAnalyticsController extends Controller
     {
         $response = new HTTPResponse(json_encode($data), $statusCode);
         $response->addHeader('Content-Type', 'application/json');
+
         return $response;
     }
 }

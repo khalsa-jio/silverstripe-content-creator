@@ -16,7 +16,8 @@ class ContentCreationEvent extends DataObject
     private static $db = [
         'Type' => 'Varchar(100)',
         'EventData' => 'Text',
-        'DataObjectClassName' => 'Varchar(255)',
+        'RelatedObjectID' => 'Int',
+        'RelatedObjectClass' => 'Varchar(255)',
         'TokensUsed' => 'Int',
         'ProcessingTime' => 'Float',
         'Success' => 'Boolean',
@@ -24,21 +25,23 @@ class ContentCreationEvent extends DataObject
 
     private static $has_one = [
         'Member' => Member::class,
-        'DataObject' => DataObject::class,
     ];
 
     private static $indexes = [
         'Type' => true,
         'Created' => true,
+        'RelatedObjectID' => true,
+        'RelatedObjectClass' => true,
     ];
 
     private static $default_sort = 'Created DESC';
 
     private static $summary_fields = [
         'Created.Nice' => 'Date/Time',
-        'Type' => 'Event Type',
+        'Description' => 'Event Type',
         'Member.Title' => 'User',
-        'DataObjectClassName' => 'Data Object Type',
+        'RelatedObjectClass' => 'Data Object Type',
+        'RelatedObjectTitle' => 'Related Object',
         'Success' => 'Successful',
     ];
 
@@ -108,69 +111,78 @@ class ContentCreationEvent extends DataObject
      */
     public function getDescription()
     {
-        switch ($this->Type) {
-            case 'generation_started':
-                return 'Generation started';
-            case 'generation_completed':
-                return 'Generation completed';
-            case 'content_applied':
-                return 'Content applied to item';
-            case 'generation_error':
-                return 'Generation error';
-            default:
-                return $this->Type;
-        }
+        $words = explode('_', $this->Type);
+        $titleCaseWords = array_map(function ($word) {
+            return ucfirst($word);
+        }, $words);
+
+        return implode(' ', $titleCaseWords);
     }
-    
+
     /**
      * Associate this event with a DataObject
-     * 
+     *
      * @param DataObject $object The object to associate with this event
      * @return $this
      */
     public function forObject(DataObject $object)
     {
-        $this->DataObjectID = $object->ID;
-        $this->DataObjectClassName = get_class($object);
-        
+        $this->RelatedObjectID = $object->ID;
+        $this->RelatedObjectClass = get_class($object);
+
         return $this;
     }
-    
+
     /**
      * Get the associated DataObject, correctly typed
-     * 
+     *
      * @return DataObject|null
      */
     public function getRelatedObject()
     {
-        if (!$this->DataObjectID || !$this->DataObjectClassName || !class_exists($this->DataObjectClassName)) {
+        if (!$this->RelatedObjectID || !$this->RelatedObjectClass || !class_exists($this->RelatedObjectClass)) {
             return null;
         }
-        
-        return DataObject::get_by_id($this->DataObjectClassName, $this->DataObjectID);
+
+        return DataObject::get_by_id($this->RelatedObjectClass, $this->RelatedObjectID);
     }
-    
+
     /**
      * Get the title of the associated DataObject if available
-     * 
+     *
      * @return string
      */
     public function getRelatedObjectTitle()
     {
         $object = $this->getRelatedObject();
-        
+
         if (!$object) {
             return 'Unknown';
         }
-        
+
         // Try to get a title using common properties
         foreach (['Title', 'Name', 'FullName'] as $field) {
             if ($object->hasField($field)) {
                 return $object->$field;
             }
         }
-        
+
         // Fallback to class and ID
         return $object->ClassName . ' #' . $object->ID;
+    }
+
+    /**
+     * Get a shorter class name for display
+     *
+     * @return string
+     */
+    public function getRelatedObjectShortClass()
+    {
+        if (!$this->RelatedObjectClass) {
+            return '';
+        }
+
+        $parts = explode('\\', $this->RelatedObjectClass);
+        return end($parts);
     }
 }

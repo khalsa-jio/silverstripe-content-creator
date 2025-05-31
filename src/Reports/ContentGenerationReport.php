@@ -124,11 +124,11 @@ class ContentGenerationReport extends Report
                 }
             ],
             'Member.Title' => 'User',
-            'DataObjectClassName' => [
+            'RelatedObjectClass' => [
                 'title' => 'Object Type',
                 'formatting' => function ($value, $item) {
-                    if ($item->DataObjectClassName) {
-                        $parts = explode('\\', $item->DataObjectClassName);
+                    if ($item->RelatedObjectClass) {
+                        $parts = explode('\\', $item->RelatedObjectClass);
                         return end($parts);
                     }
                     return null;
@@ -259,7 +259,7 @@ class ContentGenerationReport extends Report
 
             foreach ($this->columns() as $field => $info) {
                 $value = $record;
-                foreach(explode('.', $field) as $part) {
+                foreach (explode('.', $field) as $part) {
                     $value = $value->$part;
                 }
 

@@ -19,13 +19,14 @@ After:
   - '#content-creator'
 ---
 
+KhalsaJio\AI\Nexus\LLMClient:
+  default_client: KhalsaJio\AI\Nexus\Provider\OpenAI # or "KhalsaJio\AI\Nexus\Provider\Claude" - The default LLM client to use - required
+
 SilverStripe\Core\Injector\Injector:
-    KhalsaJio\ContentCreator\Services\LLMService:
-        default_provider: 'OpenAI'
-        providers:
-            OpenAI:
-                api_key: '`OPENAI_API_KEY`'
-                model: 'gpt-4o'
+    KhalsaJio\AI\Nexus\Provider\OpenAI: # or "KhalsaJio\AI\Nexus\Provider\Claude"
+        properties:
+            ApiKey: '`OPENAI_API_KEY`' # can be set in .env file - required
+            Model: 'gpt-4o-mini-2024-07-18' # default - optional
 ```
 
 ## 3. Set your API key
@@ -55,4 +56,3 @@ vendor/bin/sake dev/build flush=1
 
 - Check the [User Guide](userguide.md) for tips on writing effective prompts
 - Read the [Developer Documentation](developer.md) to learn how to extend the module
-- See the [API Reference](api.md) for detailed information on the module's classes and methods

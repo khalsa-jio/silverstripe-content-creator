@@ -15,11 +15,6 @@ use KhalsaJio\ContentCreator\Controllers\ContentCreatorAnalyticsController;
 class ContentCreatorAnalyticsControllerTest extends FunctionalTest
 {
     /**
-     * @var string
-     */
-    protected static $fixture_file = 'ContentCreatorAnalyticsControllerTest.yml';
-
-    /**
      * @var bool
      */
     protected $usesDatabase = true;

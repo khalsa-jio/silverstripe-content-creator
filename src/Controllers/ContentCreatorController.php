@@ -2,16 +2,19 @@
 
 namespace KhalsaJio\ContentCreator\Controllers;
 
+use KhalsaJio\AI\Nexus\LLMClient;
+use KhalsaJio\AI\Nexus\Provider\DefaultStreamResponseHandler;
+use KhalsaJio\AI\Nexus\Util\SafetyManager;
 use KhalsaJio\ContentCreator\Models\ContentCreationEvent;
-use KhalsaJio\ContentCreator\Services\LLMService;
+use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
 use SilverStripe\Control\Controller;
 use SilverStripe\Control\HTTPRequest;
+use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Core\Injector\Injector;
-use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\Security\Permission;
-use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Versioned\Versioned;
+use Psr\Log\LoggerInterface;
 
 /**
  * Controller for handling content generation requests
@@ -21,7 +24,7 @@ class ContentCreatorController extends Controller
     private static $url_segment = 'contentcreator';
 
     private static $url_handlers = [
-        'POST generate' => 'generate',
+        'generate' => 'generate',
         'GET getPageStructure' => 'getPageStructure',
         'POST applyContent' => 'applyContent',
         'GET debug' => 'debug',
@@ -38,55 +41,192 @@ class ContentCreatorController extends Controller
     ];
 
     /**
-     * Generate content based on a prompt
+     * Generate content based on a prompt, supporting both streaming and non-streaming.
      *
      * @param HTTPRequest $request
      * @return HTTPResponse
      */
-    public function generate(HTTPRequest $request)
+    public function generate(HTTPRequest $request): HTTPResponse
     {
-        if (!$this->validateRequest($request)) {
-            return $this->jsonResponse(['error' => 'Invalid request'], 400);
+        if (!$request->isGET() && !$request->isPOST()) {
+            return $this->jsonResponse(['error' => 'Invalid request', 'success' => false], 400);
         }
 
-        $jsonBody = $this->getJsonBody($request);
-        
-        if ($jsonBody) {
-            $dataObjectID = isset($jsonBody['dataObjectID']) ? $jsonBody['dataObjectID'] : null;
-            $dataObjectClass = isset($jsonBody['dataObjectClass']) ? $jsonBody['dataObjectClass'] : null;
-            $prompt = isset($jsonBody['prompt']) ? $jsonBody['prompt'] : null;
-            $streaming = isset($jsonBody['streaming']) ? (bool)$jsonBody['streaming'] : false;
+        // Get parameters from body or query params depending on request method
+        if ($request->isGET()) {
+            // For GET requests (EventSource), get params from URL
+            $dataObjectID = $request->getVar('dataObjectID');
+            $dataObjectClass = $request->getVar('dataObjectClass');
+            $prompt = $request->getVar('prompt');
+            $streaming = $request->getVar('streaming') === 'true';
+            $maxTokens = (int)($request->getVar('max_tokens') ?? 4000);
+            $temperature = (float)($request->getVar('temperature') ?? 0.7);
+        } else {
+            // For POST requests, get params from JSON body
+            $params = $this->getJsonBody($request);
+            $dataObjectID = $params['dataObjectID'] ?? null;
+            $dataObjectClass = $params['dataObjectClass'] ?? null;
+            $prompt = $params['prompt'] ?? null;
+            $streaming = isset($params['streaming']) && ($params['streaming'] === 'true' || $params['streaming'] === '1' || $params['streaming'] === true);
+            $maxTokens = isset($params['max_tokens']) ? (int)$params['max_tokens'] : 4000;
+            $temperature = isset($params['temperature']) ? (float)$params['temperature'] : 0.7;
+        }
+
+        // Handle URL-encoded prompt parameter which is sent by EventSource requests
+        if ($prompt && strpos($prompt, '%') !== false) {
+            $prompt = urldecode($prompt);
         }
 
         if (!$dataObjectID || !$dataObjectClass || !$prompt) {
-            return $this->jsonResponse(['error' => 'Missing required parameters: dataObjectID, dataObjectClass, prompt'], 400);
+            return $this->jsonResponse(['error' => 'Missing required parameters: dataObjectID, dataObjectClass, prompt', 'success' => false], 400);
         }
 
         $dataObject = $this->loadDataObject($dataObjectClass, $dataObjectID);
-
         if (!$dataObject instanceof DataObject && isset($dataObject['error'])) {
-            return $this->jsonResponse($dataObject, $dataObject['code']);
+            return $this->jsonResponse(['error' => $dataObject['error'], 'success' => false, 'code' => $dataObject['code'] ?? 400], $dataObject['code'] ?? 400);
         }
 
-        // If streaming is requested, handle it with SSE
+        /** @var ContentGeneratorService $contentGenerator */
+        $contentGenerator = Injector::inst()->get(ContentGeneratorService::class);
+        /** @var LLMClient $llmClient */
+        $llmClient = Injector::inst()->get(LLMClient::class);
+
+        $systemPrompt = $contentGenerator->buildSystemPrompt($dataObject);
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt, 'cache_control' => [ 'type' => "ephemeral"] ],
+            ['role' => 'user', 'content' => $prompt]
+        ];
+
+        //! Start Test - system prompt and user prompt to keep token count low
+        // $systemPrompt = 'You are a helpful assistant.';
+        // $messages = [
+        //     ['role' => 'system', 'content' => $systemPrompt],
+        //     ['role' => 'user', 'content' => $prompt]
+        // ];
+        // $maxTokens = 50;
+        // $temperature = 0.5;
+        //! End test
+
+        $messages = SafetyManager::addSafetyInstructions($messages);
+
+        $payload = [
+            'messages' => $messages,
+            'max_tokens' => $maxTokens,
+            'temperature' => $temperature,
+        ];
+
         if ($streaming) {
-            return $this->generateStreamingResponse($dataObject, $prompt);
-        }
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
 
-        // Otherwise, generate content normally
-        $generator = Injector::inst()->get(ContentGeneratorService::class);
+            // Ensure headers are not sent before this point
+            if (headers_sent($file, $line)) {
+                $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], "Headers already sent at {$file}:{$line}", true);
+                echo "event: error\ndata: " . json_encode(['error' => "Cannot start stream: Headers already sent."]) . "\n\n";
+                echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
+                flush();
+                exit();
+            }
 
-        try {
-            $content = $generator->generateContent($dataObject, $prompt);
+            header('Content-Type: text/event-stream');
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            header('Connection: keep-alive');
+            header('X-Accel-Buffering: no');
+            http_response_code(200);
 
-            return $this->jsonResponse([
-                'success' => true,
-                'content' => $content
-            ]);
-        } catch (\Exception $e) {
-            return $this->jsonResponse([
-                'error' => $e->getMessage()
-            ], 500);
+            $payload['stream'] = true;
+            $fullContentBuffer = [];
+
+            $handler = new DefaultStreamResponseHandler(
+                function ($text, $chunk, $provider, $model) use (&$fullContentBuffer) {
+                    if (!empty($text)) {
+                        $fullContentBuffer[] = $text;
+                        echo "event: chunk\ndata: " . json_encode(['text' => $text]) . "\n\n";
+                        flush();
+                    }
+                },
+                function ($completeContent, $usage) use (&$fullContentBuffer, $contentGenerator, $dataObjectID, $dataObjectClass, $prompt) {
+                    $finalText = implode('', $fullContentBuffer);
+
+                    try {
+                        $parsedContent = $contentGenerator->parseGeneratedContent($finalText);
+
+                        if (empty($parsedContent)) {
+                            echo "event: error\ndata: " . json_encode(['error' => 'Content was generated but could not be parsed']) . "\n\n";
+                            $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, $usage, 'Content was generated but could not be parsed', true);
+                            echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
+                            flush();
+                            return;
+                        }
+
+                        echo "event: complete\ndata: " . json_encode(['content' => $parsedContent, 'usage' => $usage]) . "\n\n";
+                        $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, true, $usage, null, true);
+                        echo "event: end\ndata: " . json_encode(['status' => 'completed']) . "\n\n";
+                        flush();
+                    } catch (\Exception $e) {
+                        echo "event: error\ndata: " . json_encode(['error' => 'Error parsing content: ' . $e->getMessage()]) . "\n\n";
+                        $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, $usage, 'Error parsing content: ' . $e->getMessage(), true);
+                        echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
+                        flush();
+                    }
+                },
+                function ($exception) use ($dataObjectID, $dataObjectClass, $prompt) {
+                    echo "event: error\ndata: " . json_encode(['error' => $exception->getMessage()]) . "\n\n";
+                    $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], $exception->getMessage(), true);
+                    echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
+                    flush();
+                }
+            );
+
+            try {
+                // Use the streamChat method from the LLMClientInterface
+                $llmClient->streamChat($payload, 'chat/completions', $handler);
+            } catch (\Exception $e) {
+                // This catch handles exceptions during the setup or initial call to streamChat
+                echo "event: error\ndata: " . json_encode(['error' => "Stream initiation failed: " . $e->getMessage()]) . "\n\n";
+                $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], "Stream initiation failed: " . $e->getMessage(), true);
+                echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
+                flush();
+            }
+            exit();
+        } else { // Non-streaming
+            try {
+                $response = $llmClient->chat($payload, 'chat/completions');
+
+                if (isset($response['error']) && !empty($response['error'])) {
+                    $errorMessage = is_array($response['error']) ? ($response['error']['message'] ?? 'Unknown error') : $response['error'];
+                    $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], $errorMessage);
+                    return $this->jsonResponse(['success' => false, 'error' => $errorMessage], 500);
+                }
+
+                $generatedText = $response['content'] ?? '';
+                if (empty($generatedText)) {
+                    $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], 'No content generated');
+                    return $this->jsonResponse(['success' => false, 'error' => 'No content was generated'], 500);
+                }
+
+                $parsedContent = $contentGenerator->parseGeneratedContent($generatedText);
+
+                if (empty($parsedContent)) {
+                    $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], 'Content was generated but could not be parsed');
+                    return $this->jsonResponse(['success' => false, 'error' => 'Content was generated but could not be parsed'], 500);
+                }
+
+                $usage = $response['usage'] ?? [];
+
+                $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, true, $usage);
+
+                return $this->jsonResponse([
+                    'success' => true,
+                    'content' => $parsedContent,
+                    'usage' => $usage
+                ]);
+            } catch (\Exception $e) {
+                $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], $e->getMessage());
+                return $this->jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+            }
         }
     }
 
@@ -142,9 +282,8 @@ class ContentCreatorController extends Controller
             return $this->jsonResponse(['error' => 'Invalid request'], 400);
         }
 
-        // Try to get data from JSON body first
         $jsonBody = $this->getJsonBody($request);
-        
+
         if ($jsonBody) {
             $dataObjectID = isset($jsonBody['dataObjectID']) ? $jsonBody['dataObjectID'] : null;
             $dataObjectClass = isset($jsonBody['dataObjectClass']) ? $jsonBody['dataObjectClass'] : null;
@@ -261,16 +400,16 @@ class ContentCreatorController extends Controller
         }
 
         $dataObject = null;
-        
+
         // Handle versioned DataObjects
         if (DataObject::has_extension($className, Versioned::class)) {
             // Determine which stage to check first
             $firstStage = $checkLiveFirst ? Versioned::LIVE : Versioned::DRAFT;
             $secondStage = $checkLiveFirst ? Versioned::DRAFT : Versioned::LIVE;
-            
+
             // Try to load from the first stage
             $dataObject = Versioned::get_by_stage($className, $firstStage)->byID($id);
-            
+
             // If not found, try the second stage
             if (!$dataObject || !$dataObject->exists()) {
                 $dataObject = Versioned::get_by_stage($className, $secondStage)->byID($id);
@@ -300,7 +439,7 @@ class ContentCreatorController extends Controller
         if (is_array($contentData)) {
             return $contentData;
         }
-        
+
         if (is_string($contentData)) {
             $parsed = json_decode($contentData, true);
             if (json_last_error() !== JSON_ERROR_NONE) {
@@ -308,7 +447,7 @@ class ContentCreatorController extends Controller
             }
             return $parsed;
         }
-        
+
         return false;
     }
 
@@ -321,128 +460,62 @@ class ContentCreatorController extends Controller
     protected function getJsonBody(HTTPRequest $request)
     {
         $body = $request->getBody();
-        
+
         if (!$body) {
             return null;
         }
-        
+
         $json = json_decode($body, true);
-        
+
         if (json_last_error() !== JSON_ERROR_NONE) {
             return null;
         }
-        
+
         return $json;
     }
 
     /**
-     * Generate content with streaming response (Server-Sent Events)
-     * 
-     * @param DataObject $dataObject The data object to generate content for
-     * @param string $prompt The prompt to use for content generation
-     * @return HTTPResponse
+     * Helper method to record content generation events
      */
-    protected function generateStreamingResponse(DataObject $dataObject, string $prompt)
-    {
-        header('Content-Type: text/event-stream');
-        header('Cache-Control: no-cache, no-store, must-revalidate');
-        header('Connection: keep-alive');
-        header('X-Accel-Buffering: no');  // Disable buffering for Nginx
-
-        // Send the initial response headers to the client
-        http_response_code(200);
-
+    protected function recordContentGenerationEvent(
+        $dataObjectID,
+        $dataObjectClass,
+        $prompt,
+        $success = true,
+        $usage = [],
+        $errorMessage = null,
+        $isStreaming = false
+    ): void {
         try {
-            // Start buffering to collect content for analytics
-            $fullContent = [];
+            /** @var ContentCreationEvent $event */
+            $event = ContentCreationEvent::create();
+            $event->Type = $success ? 'generation_completed' : 'generation_failed';
+            $event->DataObjectID = (int)$dataObjectID;
+            $event->DataObjectClass = (string)$dataObjectClass;
 
-            // Get LLM service directly to use streaming capability
-            $llmService = Injector::inst()->get(LLMService::class);
-
-            // Get structure for field mapping
-            $generator = Injector::inst()->get(ContentGeneratorService::class);
-            $pageStructure = $generator->getPageFieldStructure($dataObject);
-
-            // Begin the response
-            $this->sendSSEEvent('start', ['status' => 'started']);
-
-            // Prepare the context-aware system prompt
-            $systemPrompt = $generator->buildSystemPrompt($dataObject, $pageStructure);
-            $fullPrompt = $systemPrompt . "\n\n" . $prompt;
-
-            // Initialize the fields array that will store the content
-            $fields = [];
-            foreach ($pageStructure as $field) {
-                $fields[$field['name']] = '';
+            $eventData = [
+                'prompt_length' => strlen($prompt),
+                'success' => $success,
+                'streaming' => $isStreaming,
+            ];
+            if (!empty($usage)) {
+                $eventData['usage'] = $usage;
             }
-
-            // Callback function to handle streaming chunks
-            $streamCallback = function($chunk) use (&$fullContent) {
-                $fullContent[] = $chunk;
-
-                // Send the chunk as an SSE event
-                $this->sendSSEEvent('chunk', ['text' => $chunk]);
-            };
-
-            // Generate content using streaming
-            $llmService->generateContentStreaming($fullPrompt, [], $streamCallback);
-
-            // Process the complete content once streaming is complete
-            $completeContent = implode('', $fullContent);
-            $parsedContent = $generator->parseGeneratedContent($completeContent, $pageStructure);
-
-            // Send the complete processed content
-            $this->sendSSEEvent('complete', ['content' => $parsedContent]);
-
-            // Record the analytics
-            $event = ContentCreationEvent::create([
-                'DataObjectID' => $dataObject->ID,
-                'DataObjectClass' => get_class($dataObject),
-                'Prompt' => $prompt,
-                'Success' => true
-            ]);
+            if ($errorMessage) {
+                $eventData['error'] = substr($errorMessage, 0, 1000); // Truncate error message
+            }
+            $event->EventData = json_encode($eventData);
             $event->write();
-
-            // End the response
-            $this->sendSSEEvent('end', ['status' => 'completed']);
-
-            // Make sure everything is sent
-            if (ob_get_level() > 0) {
-                ob_end_flush();
-            }
-            flush();
-
-            // The custom response doesn't need to be returned
-            exit();
         } catch (\Exception $e) {
-            // In case of an error, send an error event
-            $this->sendSSEEvent('error', ['error' => $e->getMessage()]);
-
-            // Make sure everything is sent
-            if (ob_get_level() > 0) {
-                ob_end_flush();
+            /** @var LoggerInterface|null $logger */
+            $logger = Injector::inst()->get(LoggerInterface::class, false); // false for optional
+            if ($logger) {
+                $logger->warning('Failed to record content generation event: ' . $e->getMessage(), [
+                    'exception' => $e,
+                    'dataObjectID' => $dataObjectID,
+                    'dataObjectClass' => $dataObjectClass
+                ]);
             }
-            flush();
-            exit();
         }
-    }
-
-    /**
-     * Send a Server-Sent Event
-     * 
-     * @param string $event The event name
-     * @param array $data The data to send with the event
-     * @return void
-     */
-    protected function sendSSEEvent(string $event, array $data = []): void
-    {
-        echo "event: {$event}\n";
-        echo "data: " . json_encode($data) . "\n\n";
-        
-        // Flush the output buffer to send data immediately
-        if (ob_get_level() > 0) {
-            ob_flush();
-        }
-        flush();
     }
 }

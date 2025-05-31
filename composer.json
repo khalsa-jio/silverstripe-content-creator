@@ -18,7 +18,8 @@
         "silverstripe/cms": "^5.0",
         "symbiote/silverstripe-gridfieldextensions": "^4.0",
         "guzzlehttp/guzzle": "^7.0",
-        "dnadesign/silverstripe-populate": "^3.0"
+        "dnadesign/silverstripe-populate": "^3.0",
+        "khalsa-jio/silverstripe-ai-nexus": "^0.1"
     },
     "require-dev": {
         "phpunit/phpunit": "^9.6",
@@ -26,10 +27,6 @@
         "silverstripe/standards": "^1",
         "phpstan/extension-installer": "^1.3",
         "dnadesign/silverstripe-elemental": "^5.0"
-    },
-    "suggest": {
-        "khalsa-jio/silverstripe-ai-nexus": "For integration with multiple LLM providers",
-        "inspector-apm/neuron-ai": "Alternative PHP library for LLM integration"
     },
     "autoload": {
         "psr-4": {
@@ -50,5 +47,10 @@
             "silverstripe/vendor-plugin": true,
             "phpstan/extension-installer": true
         }
+    },
+    "scripts": {
+        "phpcs": "phpcs src --extensions=php",
+        "phpcbf": "phpcbf src --extensions=php",
+        "phpcs-fix": "@phpcbf"
     }
 }

@@ -133,7 +133,7 @@ class ContentCreatorAdmin extends ModelAdmin
     {
         return $this->redirect($this->Link());
     }
-    
+
     /**
      * Apply the filters
      */

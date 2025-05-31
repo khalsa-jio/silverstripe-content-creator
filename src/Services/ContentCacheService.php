@@ -37,7 +37,7 @@ class ContentCacheService
         }
         $this->cache = $cacheFactory->create($this->cacheName);
     }
-    
+
     /**
      * Set the cache name
      *
@@ -52,7 +52,7 @@ class ContentCacheService
         $this->cache = $cacheFactory->create($this->cacheName);
         return $this;
     }
-    
+
     /**
      * Get the cache name
      *
