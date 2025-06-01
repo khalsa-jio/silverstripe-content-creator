@@ -50,7 +50,7 @@ class ContentGeneratorService
         'ID', 'Created', 'LastEdited', 'ClassName', 'URLSegment',
         'ShowInMenus', 'ShowInSearch', 'Sort', 'ParentID', 'Version',
         'RecordClassName', 'ParentClass', 'OwnerClassName', 'ElementID',
-        'CMSEditLink', 'ExtraClass', 'InlineEditable', 'Title'
+        'CMSEditLink', 'ExtraClass', 'InlineEditable'
     ];
 
     /**
@@ -162,6 +162,8 @@ class ContentGeneratorService
             DateField::class,
             DatetimeField::class,
             ListboxField::class,
+            NumericField::class,
+            CheckboxField::class,
         ];
 
         $this->extend('updateContentFieldTypes', $contentFieldTypes);

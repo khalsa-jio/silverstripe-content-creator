@@ -2,23 +2,31 @@
 
 namespace KhalsaJio\ContentCreator\Extensions;
 
-use SilverStripe\Forms\GridField\GridFieldDetailForm_ItemRequest;
+use SilverStripe\Core\Extension;
 use SilverStripe\Forms\GridField\GridField_FormAction;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Control\Controller;
 
-class ContentCreatorGridFieldItemRequestExtension extends GridFieldDetailForm_ItemRequest
+class ContentCreatorGridFieldItemRequestExtension extends Extension
 {
-    private static $allowed_actions = [
-        'contentcreator'
-    ];
+    /**
+     * Static add_to_class method required by all SilverStripe extensions
+     * 
+     * @param string $class The class to add this extension to
+     * @param string $extensionClass The extension class name
+     * @param array $args Extension constructor arguments
+     */
+    public static function add_to_class($class, $extensionClass, $args = null)
+    {
+        parent::add_to_class($class, $extensionClass, $args);
+    }
 
     /**
      * Add the content creator action to the GridField item actions
      */
     public function updateFormActions(&$actions)
     {
-        $record = $this->record;
+        $record = $this->owner->record;
 
         // Check if content creator should be enabled for this page type
         if (!$record || !$record->hasExtension(ContentCreatorExtension::class)) {
@@ -36,7 +44,7 @@ class ContentCreatorGridFieldItemRequestExtension extends GridFieldDetailForm_It
 
         // Add the content creator button
         $contentCreatorAction = GridField_FormAction::create(
-            $this->gridField,
+            $this->owner->gridField,
             'contentcreator' . $record->ID,
             _t('KhalsaJio\ContentCreator\Extensions\ContentCreatorExtension.GENERATE_CONTENT_SHORT', 'AI Content'),
         )

@@ -17,17 +17,18 @@ class ContentCacheServiceTest extends SapphireTest
     {
         $cacheService = Injector::inst()->get(ContentCacheService::class);
 
-        $mockObject = $this->getMockBuilder(\Page::class)
-            ->setMethods(['getField'])
-            ->getMock();
-
-        $key = $cacheService->generateCacheKey($mockObject);
+        $page = new \Page();
+        $page->ID = 123;
+        $page->LastEdited = '2023-05-25 10:00:00';
+        
+        $key = $cacheService->generateCacheKey($page);
 
         $this->assertNotEmpty($key);
         $this->assertStringContainsString('Page', $key);
+        $this->assertStringContainsString('123', $key);
 
         // Test with a custom prefix
-        $key2 = $cacheService->generateCacheKey($mockObject, 'custom');
+        $key2 = $cacheService->generateCacheKey($page, 'custom');
         $this->assertStringStartsWith('custom', $key2);
     }
 

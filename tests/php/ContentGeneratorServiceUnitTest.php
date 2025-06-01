@@ -59,7 +59,7 @@ class ContentGeneratorServiceUnitTest extends TestCase
         // Test the method results
         $this->assertTrue($method->invoke($this->service, $textField), 'TextField should be considered a content field');
         $this->assertTrue($method->invoke($this->service, $htmlField), 'HTMLEditorField should be considered a content field');
-        $this->assertFalse($method->invoke($this->service, $numericField), 'NumericField should not be considered a content field');
-        $this->assertFalse($method->invoke($this->service, $checkboxField), 'CheckboxField should not be considered a content field');
+        $this->assertTrue($method->invoke($this->service, $numericField), 'NumericField should be considered a content field');
+        $this->assertTrue($method->invoke($this->service, $checkboxField), 'CheckboxField should be considered a content field');
     }
 }
