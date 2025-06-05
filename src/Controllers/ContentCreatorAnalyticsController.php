@@ -148,11 +148,15 @@ class ContentCreatorAnalyticsController extends Controller
         $userEvents = $events->groupBy('MemberID');
 
         foreach ($userEvents as $memberID => $memberEvents) {
-            if (!$memberID) continue;
+            if (!$memberID) {
+                continue;
+            }
 
             $member = DataObject::get_by_id(Member::class, $memberID);
 
-            if (!$member) continue;
+            if (!$member) {
+                continue;
+            }
 
             $stats['by_user'][] = [
                 'member_id' => $memberID,
@@ -166,15 +170,21 @@ class ContentCreatorAnalyticsController extends Controller
         $pageEvents = $events->filter('RelatedObjectID:GreaterThan', 0)->groupBy('RelatedObjectID');
 
         foreach ($pageEvents as $pageID => $pageEvents) {
-            if (!$pageID) continue;
+            if (!$pageID) {
+                continue;
+            }
 
             $firstEvent = $pageEvents[0];
 
-            if (!$firstEvent->RelatedObjectClass || !class_exists($firstEvent->RelatedObjectClass)) continue;
+            if (!$firstEvent->RelatedObjectClass || !class_exists($firstEvent->RelatedObjectClass)) {
+                continue;
+            }
 
             $page = DataObject::get_by_id($firstEvent->RelatedObjectClass, $pageID);
 
-            if (!$page) continue;
+            if (!$page) {
+                continue;
+            }
 
             $stats['by_dataobject'][] = [
                 'dataobject_id' => $pageID,

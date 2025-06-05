@@ -64,7 +64,7 @@ const formatFieldOptions = (options) => {
             variant="light"
             className="mr-1 mb-1 border"
           >
-            {key}: {value}
+            {value}
           </Badge>
         ))}
       </div>

@@ -16,7 +16,7 @@ class ContentGeneratorServiceTest extends SapphireTest
 {
     protected $usesDatabase = true;
 
-    protected static $fixture_file = 'ContentGeneratorServiceTest.yml';
+    protected static $fixture_file = './fixtures/ContentGeneratorServiceTest.yml';
 
     /**
      * Test the isContentField method

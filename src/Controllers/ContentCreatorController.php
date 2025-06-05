@@ -88,33 +88,6 @@ class ContentCreatorController extends Controller
 
         /** @var ContentGeneratorService $contentGenerator */
         $contentGenerator = Injector::inst()->get(ContentGeneratorService::class);
-        /** @var LLMClient $llmClient */
-        $llmClient = Injector::inst()->get(LLMClient::class);
-
-        $systemPrompt = $contentGenerator->buildSystemPrompt($dataObject);
-
-        $messages = [
-            ['role' => 'system', 'content' => $systemPrompt, 'cache_control' => [ 'type' => "ephemeral"] ],
-            ['role' => 'user', 'content' => $prompt]
-        ];
-
-        //! Start Test - system prompt and user prompt to keep token count low
-        // $systemPrompt = 'You are a helpful assistant.';
-        // $messages = [
-        //     ['role' => 'system', 'content' => $systemPrompt],
-        //     ['role' => 'user', 'content' => $prompt]
-        // ];
-        // $maxTokens = 50;
-        // $temperature = 0.5;
-        //! End test
-
-        $messages = SafetyManager::addSafetyInstructions($messages);
-
-        $payload = [
-            'messages' => $messages,
-            'max_tokens' => $maxTokens,
-            'temperature' => $temperature,
-        ];
 
         if ($streaming) {
             while (ob_get_level() > 0) {
@@ -136,55 +109,33 @@ class ContentCreatorController extends Controller
             header('X-Accel-Buffering: no');
             http_response_code(200);
 
-            $payload['stream'] = true;
-            $fullContentBuffer = [];
-
-            $handler = new DefaultStreamResponseHandler(
-                function ($text, $chunk, $provider, $model) use (&$fullContentBuffer) {
-                    if (!empty($text)) {
-                        $fullContentBuffer[] = $text;
+            try {
+                $contentGenerator->generateStreamContent(
+                    $dataObject,
+                    $prompt,
+                    $maxTokens,
+                    $temperature,
+                    // Chunk callback
+                    function ($text) {
                         echo "event: chunk\ndata: " . json_encode(['text' => $text]) . "\n\n";
                         flush();
-                    }
-                },
-                function ($completeContent, $usage) use (&$fullContentBuffer, $contentGenerator, $dataObjectID, $dataObjectClass, $prompt) {
-                    $finalText = implode('', $fullContentBuffer);
-
-                    try {
-                        $parsedContent = $contentGenerator->parseGeneratedContent($finalText);
-
-                        if (empty($parsedContent)) {
-                            echo "event: error\ndata: " . json_encode(['error' => 'Content was generated but could not be parsed']) . "\n\n";
-                            $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, $usage, 'Content was generated but could not be parsed', true);
-                            echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
-                            flush();
-                            return;
-                        }
-
+                    },
+                    // Complete callback
+                    function ($parsedContent, $usage) use ($dataObjectID, $dataObjectClass, $prompt) {
                         echo "event: complete\ndata: " . json_encode(['content' => $parsedContent, 'usage' => $usage]) . "\n\n";
                         $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, true, $usage, null, true);
                         echo "event: end\ndata: " . json_encode(['status' => 'completed']) . "\n\n";
                         flush();
-                    } catch (\Exception $e) {
-                        echo "event: error\ndata: " . json_encode(['error' => 'Error parsing content: ' . $e->getMessage()]) . "\n\n";
-                        $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, $usage, 'Error parsing content: ' . $e->getMessage(), true);
+                    },
+                    // Error callback
+                    function ($exception) use ($dataObjectID, $dataObjectClass, $prompt) {
+                        echo "event: error\ndata: " . json_encode(['error' => $exception->getMessage()]) . "\n\n";
+                        $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], $exception->getMessage(), true);
                         echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
                         flush();
                     }
-                },
-                function ($exception) use ($dataObjectID, $dataObjectClass, $prompt) {
-                    echo "event: error\ndata: " . json_encode(['error' => $exception->getMessage()]) . "\n\n";
-                    $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], $exception->getMessage(), true);
-                    echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
-                    flush();
-                }
-            );
-
-            try {
-                // Use the streamChat method from the LLMClientInterface
-                $llmClient->streamChat($payload, 'chat/completions', $handler);
+                );
             } catch (\Exception $e) {
-                // This catch handles exceptions during the setup or initial call to streamChat
                 echo "event: error\ndata: " . json_encode(['error' => "Stream initiation failed: " . $e->getMessage()]) . "\n\n";
                 $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], "Stream initiation failed: " . $e->getMessage(), true);
                 echo "event: end\ndata: " . json_encode(['status' => 'failed']) . "\n\n";
@@ -193,35 +144,11 @@ class ContentCreatorController extends Controller
             exit();
         } else { // Non-streaming
             try {
-                $response = $llmClient->chat($payload, 'chat/completions');
-
-                if (isset($response['error']) && !empty($response['error'])) {
-                    $errorMessage = is_array($response['error']) ? ($response['error']['message'] ?? 'Unknown error') : $response['error'];
-                    $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], $errorMessage);
-                    return $this->jsonResponse(['success' => false, 'error' => $errorMessage], 500);
-                }
-
-                $generatedText = $response['content'] ?? '';
-                if (empty($generatedText)) {
-                    $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], 'No content generated');
-                    return $this->jsonResponse(['success' => false, 'error' => 'No content was generated'], 500);
-                }
-
-                $parsedContent = $contentGenerator->parseGeneratedContent($generatedText);
-
-                if (empty($parsedContent)) {
-                    $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], 'Content was generated but could not be parsed');
-                    return $this->jsonResponse(['success' => false, 'error' => 'Content was generated but could not be parsed'], 500);
-                }
-
-                $usage = $response['usage'] ?? [];
-
-                $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, true, $usage);
+                $generatedContent = $contentGenerator->generateContent($dataObject, $prompt);
 
                 return $this->jsonResponse([
                     'success' => true,
-                    'content' => $parsedContent,
-                    'usage' => $usage
+                    'content' => $generatedContent
                 ]);
             } catch (\Exception $e) {
                 $this->recordContentGenerationEvent($dataObjectID, $dataObjectClass, $prompt, false, [], $e->getMessage());
@@ -306,7 +233,8 @@ class ContentCreatorController extends Controller
         }
 
         try {
-            $this->populatePageFields($dataObject, $contentData);
+            $contentGeneratorService = Injector::inst()->get(ContentGeneratorService::class);
+            $contentGeneratorService->populateContent($dataObject, $contentData);
 
             return $this->jsonResponse([
                 'success' => true,
@@ -319,27 +247,6 @@ class ContentCreatorController extends Controller
         }
     }
 
-    /**
-     * Manually populate page fields if the Populate module is not available
-     *
-     * @param DataObject $dataObject
-     * @param array $data
-     * TODO: Need to handle complex field types (e.g. ManyMany, HasMany, etc.)
-     */
-    protected function populatePageFields(DataObject $dataObject, array $data)
-    {
-        foreach ($data as $fieldName => $value) {
-            // Skip fields that don't exist on the page
-            if (!$dataObject->hasField($fieldName) && !$dataObject->hasMethod("set$fieldName")) {
-                continue;
-            }
-
-            // Set the field value
-            $dataObject->$fieldName = $value;
-        }
-
-        $dataObject->write();
-    }
 
     /**
      * Validate that the request is valid

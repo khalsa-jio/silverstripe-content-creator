@@ -1,0 +1,35 @@
+---
+Name: content-creator-test-relationships
+---
+KhalsaJio\ContentCreator\Services\ContentGeneratorService:
+  # Convert from exclusions to inclusions
+  included_relationship_classes:
+    - 'KhalsaJio\ContentCreator\Tests\TestHasOneClass'
+    - 'KhalsaJio\ContentCreator\Tests\TestHasManyClass'
+    - 'KhalsaJio\ContentCreator\Tests\TestManyManyClass'
+    - 'SilverStripe\CMS\Model\SiteTree'
+    - 'Terraformers\KeysForCache\Models\CacheKey'
+
+  included_specific_relations:
+    - 'KhalsaJio\ContentCreator\Tests\TestElement.TestHasOne'
+    - 'KhalsaJio\ContentCreator\Tests\TestElement.TestHasMany'
+    - 'KhalsaJio\ContentCreator\Tests\TestElement.TestManyMany'
+    # Also include relations needed for tests
+    - 'SilverStripe\CMS\Model\SiteTree.TopPage'
+    - 'SilverStripe\CMS\Model\SiteTree.CacheKeys'
+    - 'SilverStripe\CMS\Model\SiteTree.LinkTracking'
+    - 'SilverStripe\CMS\Model\SiteTree.FileTracking'
+
+  related_object_fields:
+    'KhalsaJio\ContentCreator\Tests\TestHasOneClass':
+      - 'Title'
+      - 'Content'
+
+    'KhalsaJio\ContentCreator\Tests\TestHasManyClass':
+      - 'Name'
+      - 'Description'
+
+    'KhalsaJio\ContentCreator\Tests\TestManyManyClass':
+      - 'Code'
+      - 'Value'
+---

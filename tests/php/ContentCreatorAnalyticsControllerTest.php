@@ -20,7 +20,7 @@ class ContentCreatorAnalyticsControllerTest extends FunctionalTest
      */
     protected $usesDatabase = true;
 
-    protected static $fixture_file = 'ContentCreatorAnalyticsControllerTest.yml';
+    protected static $fixture_file = './fixtures/ContentCreatorAnalyticsControllerTest.yml';
 
     protected function setUp(): void
     {

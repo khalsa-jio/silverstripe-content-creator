@@ -11,7 +11,7 @@ class ContentCreatorGridFieldItemRequestExtension extends Extension
 {
     /**
      * Static add_to_class method required by all SilverStripe extensions
-     * 
+     *
      * @param string $class The class to add this extension to
      * @param string $extensionClass The extension class name
      * @param array $args Extension constructor arguments

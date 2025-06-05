@@ -1,0 +1,35 @@
+KhalsaJio\ContentCreator\Tests\TestHasOneClass:
+  test_has_one:
+    Title: "Test Has One Title"
+    Content: "Test Has One Content"
+    Reference: "REF123"
+
+KhalsaJio\ContentCreator\Tests\TestHasManyClass:
+  test_has_many_1:
+    Name: "Test Has Many Item 1"
+    Description: "First has many item description"
+    Priority: 1
+  test_has_many_2:
+    Name: "Test Has Many Item 2"
+    Description: "Second has many item description"
+    Priority: 2
+
+KhalsaJio\ContentCreator\Tests\TestManyManyClass:
+  test_many_many_1:
+    Code: "MM001"
+    Value: "Many Many Value 1"
+    SortOrder: 1
+  test_many_many_2:
+    Code: "MM002"
+    Value: "Many Many Value 2"
+    SortOrder: 2
+
+KhalsaJio\ContentCreator\Tests\TestExcludedClass:
+  test_excluded:
+    ExcludedField1: "Should Not Appear"
+    ExcludedField2: "This should be excluded"
+
+KhalsaJio\ContentCreator\Tests\TestElement:
+  test_element:
+    TestContent: "Element test content"
+    TestField: "Element test field"
