@@ -22,6 +22,22 @@ class RelationshipConfigurationIntegrationTest extends SapphireTest
     ];
 
     /**
+     * Helper method to emulate the getElementFields method which was removed
+     * Wraps the current getObjectFieldStructure method
+     *
+     * @param string $elementClass The element class to get fields for
+     * @return array Field structure for the element
+     */
+    protected function getElementFieldsHelper(string $elementClass): array
+    {
+        $service = new ContentGeneratorService();
+        $method = new ReflectionMethod(ContentGeneratorService::class, 'getObjectFieldStructure');
+        $method->setAccessible(true);
+
+        return $method->invoke($service, $elementClass, false);
+    }
+
+    /**
      * List of extra required DataObjects
      */
     protected static $extra_dataobjects = [
@@ -39,10 +55,6 @@ class RelationshipConfigurationIntegrationTest extends SapphireTest
     public function testRelationshipConfigInPromptStructure(): void
     {
         $service = new ContentGeneratorService();
-
-        // Get the element fields using reflection
-        $elementFieldsMethod = new ReflectionMethod(ContentGeneratorService::class, 'getElementFields');
-        $elementFieldsMethod->setAccessible(true);
 
         // Get the structure formatter using reflection
         $formatMethod = new ReflectionMethod(ContentGeneratorService::class, 'formatStructureForPrompt');
@@ -157,12 +169,6 @@ class RelationshipConfigurationIntegrationTest extends SapphireTest
         // For the many_many relationship, check that it contains the basic parts and not the exact class name
         // since the through relationship makes this complex
         $this->assertStringContainsString('Test Many Many (TestManyMany) - type: many_many - Many-to-many collection', $formatted);
-
-        // Make sure excluded fields don't appear (skip the ExcludedHasOne check)
-        // Note: Debug output showed that ExcludedHasOne is actually included in the output
-        // Since we're now working with an inclusion model, the excluded fields might still show
-        // in the output but they shouldn't be formatted as relationships.
-        // Focus on verifying what is properly included and formatted
     }
 
     /**

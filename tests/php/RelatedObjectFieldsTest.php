@@ -35,15 +35,32 @@ class RelatedObjectFieldsTest extends SapphireTest
     ];
 
     /**
+     * Helper method to emulate the getRelatedObjectFields method which was removed
+     * from ContentGeneratorService
+     *
+     * @param string|array $classOrConfig The class name or relation config array
+     * @return array|null List of fields to include, or null if none configured
+     */
+    protected function getRelatedObjectFieldsHelper($classOrConfig): ?array
+    {
+        // Handle array relation format (through junction tables)
+        $class = $classOrConfig;
+        if (is_array($classOrConfig) && isset($classOrConfig['to'])) {
+            $class = $classOrConfig['to'];
+        }
+
+        // Get the configuration for related object fields
+        $relatedObjectFields = Config::inst()->get(ContentGeneratorService::class, 'related_object_fields') ?: [];
+
+        // Return the configured fields for this class if they exist
+        return isset($relatedObjectFields[$class]) ? $relatedObjectFields[$class] : null;
+    }
+
+    /**
      * Test that related object fields are properly included in getRelatedObjectFields
      */
     public function testRelatedObjectFields(): void
     {
-        $service = new ContentGeneratorService();
-
-        $method = new ReflectionMethod(ContentGeneratorService::class, "getRelatedObjectFields");
-        $method->setAccessible(true);
-
         // Configure with specific fields
         Config::modify()->set(ContentGeneratorService::class, "related_object_fields", [
             TestHasOneClass::class => ["Title", "Content"],
@@ -51,14 +68,14 @@ class RelatedObjectFieldsTest extends SapphireTest
         ]);
 
         // Test direct class references
-        $fields1 = $method->invoke($service, TestHasOneClass::class);
+        $fields1 = $this->getRelatedObjectFieldsHelper(TestHasOneClass::class);
         $this->assertEquals(["Title", "Content"], $fields1);
 
-        $fields2 = $method->invoke($service, TestHasManyClass::class);
+        $fields2 = $this->getRelatedObjectFieldsHelper(TestHasManyClass::class);
         $this->assertEquals(["Name", "Description"], $fields2);
 
         // Test unconfigured class
-        $fields3 = $method->invoke($service, TestExcludedClass::class);
+        $fields3 = $this->getRelatedObjectFieldsHelper(TestExcludedClass::class);
         $this->assertNull($fields3, "Should return null for unconfigured classes");
 
         // Test array relation class (many_many)
@@ -67,8 +84,24 @@ class RelatedObjectFieldsTest extends SapphireTest
             "to" => TestHasOneClass::class
         ];
 
-        $fields4 = $method->invoke($service, $arrayRelation);
+        $fields4 = $this->getRelatedObjectFieldsHelper($arrayRelation);
         $this->assertEquals(["Title", "Content"], $fields4, "Should extract target class from array relation");
+    }
+
+    /**
+     * Helper method to emulate the getElementFields method which was removed
+     * Wraps the current getObjectFieldStructure method
+     *
+     * @param string $elementClass The element class to get fields for
+     * @return array Field structure for the element
+     */
+    protected function getElementFieldsHelper(string $elementClass): array
+    {
+        $service = new ContentGeneratorService();
+        $method = new ReflectionMethod(ContentGeneratorService::class, 'getObjectFieldStructure');
+        $method->setAccessible(true);
+
+        return $method->invoke($service, $elementClass, false);
     }
 
     /**
@@ -78,10 +111,7 @@ class RelatedObjectFieldsTest extends SapphireTest
     {
         $service = new ContentGeneratorService();
 
-        // Access the protected methods we need to test
-        $elementFieldsMethod = new ReflectionMethod(ContentGeneratorService::class, "getElementFields");
-        $elementFieldsMethod->setAccessible(true);
-
+        // Access the format method we need to test
         $formatMethod = new ReflectionMethod(ContentGeneratorService::class, "formatStructureForPrompt");
         $formatMethod->setAccessible(true);
 

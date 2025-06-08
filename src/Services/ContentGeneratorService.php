@@ -140,7 +140,7 @@ class ContentGeneratorService
      * @return array The field structure
      * @throws Exception If there's an error generating the field structure
      */
-    public function getPageFieldStructure(DataObject $dataObject, bool $refreshCache = true): array
+    public function getPageFieldStructure(DataObject $dataObject, bool $refreshCache = false): array
     {
         $cacheKey = $this->cacheService->generateCacheKey($dataObject);
 
@@ -1282,8 +1282,8 @@ class ContentGeneratorService
                 $blockClass = $blockData['BlockType'];
             } elseif (isset($blockData['ClassName'])) {
                 $blockClass = $blockData['ClassName'];
-            } elseif (isset($blockData['Type'])) {
-                $blockClass = $blockData['Type'];
+            } elseif (isset($blockData['Type']) || isset($blockData['type'])) {
+                $blockClass = $blockData['Type'] ?? $blockData['type'];
             }
 
             // If we still don't have a class, skip this block
@@ -1355,67 +1355,6 @@ class ContentGeneratorService
         return $this->populateContent($dataObject, $generatedContent, $write);
     }
 
-    // /**
-    //  * Validate generated content structure against page field structure
-    //  *
-    //  * @param DataObject $dataObject
-    //  * @param array $generatedContent
-    //  * @return array Array of validation errors (empty if valid)
-    //  */
-    // public function validateGeneratedContent(DataObject $dataObject, array $generatedContent): array
-    // {
-    //     $errors = [];
-    //     $structure = $this->getPageFieldStructure($dataObject);
-
-    //     // Create a lookup of valid field names
-    //     $validFields = [];
-    //     $elementBlockFields = []; // Track fields within elements for validation
-    //     foreach ($structure as $field) {
-    //         $validFields[$field['name']] = $field;
-
-    //         // Also include elemental area block types
-    //         if ($field['type'] === 'ElementalArea' && isset($field['allowedElementTypes'])) {
-    //             foreach ($field['allowedElementTypes'] as $elementType) {
-    //                 $validFields[$elementType['class']] = $elementType;
-
-    //                 // Store element fields for later validation
-    //                 if (isset($elementType['fields']) && is_array($elementType['fields'])) {
-    //                     $elementBlockFields[$elementType['class']] = [];
-    //                     foreach ($elementType['fields'] as $elementField) {
-    //                         $elementBlockFields[$elementType['class']][$elementField['name']] = $elementField;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     // Check each generated field
-    //     foreach ($generatedContent as $fieldName => $fieldValue) {
-    //         if (!isset($validFields[$fieldName])) {
-    //             // Check if it's a relation field
-    //             $relationInfo = $this->getRelationInfo($dataObject, $fieldName);
-    //             if (!$relationInfo) {
-    //                 $errors[] = "Field '{$fieldName}' is not valid for {$dataObject->ClassName}";
-    //                 continue;
-    //             }
-
-    //             // Validate relationship field structure
-    //             $relationErrors = $this->validateRelationshipFieldStructure($fieldName, $fieldValue, $relationInfo);
-    //             if (!empty($relationErrors)) {
-    //                 $errors = array_merge($errors, $relationErrors);
-    //             }
-    //         } elseif ($validFields[$fieldName]['type'] === 'ElementalArea' && is_array($fieldValue)) {
-    //             // Validate elemental blocks
-    //             $blockErrors = $this->validateElementalBlocks($fieldValue, $elementBlockFields);
-    //             if (!empty($blockErrors)) {
-    //                 $errors = array_merge($errors, $blockErrors);
-    //             }
-    //         }
-    //     }
-
-    //     return $errors;
-    // }
-
     /**
      * Validate relationship field structure based on relation type
      *
@@ -1458,99 +1397,6 @@ class ContentGeneratorService
 
         return $errors;
     }
-
-    // /**
-    //  * Validate elemental blocks structure including relationship fields within blocks
-    //  *
-    //  * @param array $blocks The elemental blocks to validate
-    //  * @param array $elementBlockFields Mapping of element types to their fields
-    //  * @return array Array of validation errors (empty if valid)
-    //  */
-    // protected function validateElementalBlocks(array $blocks, array $elementBlockFields): array
-    // {
-    //     $errors = [];
-
-    //     foreach ($blocks as $index => $block) {
-    //         if (!is_array($block)) {
-    //             $errors[] = "Block at index {$index} should be an object";
-    //             continue;
-    //         }
-
-    //         // Determine block type
-    //         $blockType = null;
-    //         if (isset($block['BlockType'])) {
-    //             $blockType = $block['BlockType'];
-    //         } elseif (isset($block['ClassName'])) {
-    //             $blockType = $block['ClassName'];
-    //         } elseif (isset($block['Type'])) {
-    //             $blockType = $block['Type'];
-    //         }
-
-    //         if (!$blockType) {
-    //             $errors[] = "Could not determine block type for block at index {$index}";
-    //             continue;
-    //         }
-
-    //         // Normalize block type classname
-    //         $blockType = $this->unsanitiseClassName($blockType);
-
-    //         // Validate fields within the block
-    //         if (isset($elementBlockFields[$blockType])) {
-    //             foreach ($block as $fieldName => $fieldValue) {
-    //                 // Skip meta fields
-    //                 if (in_array($fieldName, ['BlockType', 'ClassName', 'Type'])) {
-    //                     continue;
-    //                 }
-
-    //                 if (!isset($elementBlockFields[$blockType][$fieldName])) {
-    //                     // Check if it's a relationship field
-    //                     $relationInfo = null;
-
-    //                     // Try to instantiate the block class to check for relations
-    //                     if (class_exists($blockType)) {
-    //                         $blockInstance = singleton($blockType);
-    //                         $relationInfo = $this->getRelationInfo($blockInstance, $fieldName);
-    //                     }
-
-    //                     if (!$relationInfo) {
-    //                         $errors[] = "Field '{$fieldName}' is not valid for block type {$blockType}";
-    //                     } else {
-    //                         // Validate relationship field structure
-    //                         $relationErrors = $this->validateRelationshipFieldStructure(
-    //                             "{$blockType}.{$fieldName}",
-    //                             $fieldValue,
-    //                             $relationInfo
-    //                         );
-
-    //                         if (!empty($relationErrors)) {
-    //                             $errors = array_merge($errors, $relationErrors);
-    //                         }
-    //                     }
-    //                 } elseif (in_array($elementBlockFields[$blockType][$fieldName]['type'], ['has_one', 'has_many', 'many_many'])) {
-    //                     // Validate relationship field structure
-    //                     $relationInfo = [
-    //                         'type' => $elementBlockFields[$blockType][$fieldName]['type'],
-    //                         'class' => $elementBlockFields[$blockType][$fieldName]['relationClass'] ?? 'DataObject'
-    //                     ];
-
-    //                     $relationErrors = $this->validateRelationshipFieldStructure(
-    //                         "{$blockType}.{$fieldName}",
-    //                         $fieldValue,
-    //                         $relationInfo
-    //                     );
-
-    //                     if (!empty($relationErrors)) {
-    //                         $errors = array_merge($errors, $relationErrors);
-    //                     }
-    //                 }
-    //             }
-    //         } else {
-    //             $errors[] = "No field definitions available for block type {$blockType}";
-    //         }
-    //     }
-
-    //     return $errors;
-    // }
 
     /**
      * Check if a relationship should be included in content generation
