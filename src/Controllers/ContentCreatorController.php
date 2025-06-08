@@ -228,6 +228,7 @@ class ContentCreatorController extends Controller
         }
 
         $contentData = $this->parseContentData($contentData);
+
         if ($contentData === false) {
             return $this->jsonResponse(['error' => 'Invalid content data format'], 400);
         }

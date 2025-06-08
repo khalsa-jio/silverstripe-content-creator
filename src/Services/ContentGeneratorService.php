@@ -125,8 +125,11 @@ class ContentGeneratorService
      */
     private $logger;
 
-    public function __construct(LLMClient $llmClient = null, ContentCacheService $cacheService = null, LoggerInterface $logger = null)
-    {
+    public function __construct(
+        LLMClient $llmClient = null,
+        ContentCacheService $cacheService = null,
+        LoggerInterface $logger = null
+    ) {
         $this->llmClient = $llmClient ?: Injector::inst()->get(LLMClient::class);
         $this->cacheService = $cacheService ?: Injector::inst()->get(ContentCacheService::class);
         $this->logger = $logger ?: Injector::inst()->get(LoggerInterface::class);
