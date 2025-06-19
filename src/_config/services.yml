@@ -1,0 +1,29 @@
+---
+Name: content-creator-services
+After: '#coreinjectors'
+---
+SilverStripe\Core\Injector\Injector:
+  KhalsaJio\ContentCreator\Services\ContentStructureService:
+    constructor:
+      cacheService: '%$KhalsaJio\ContentCreator\Services\ContentCacheService'
+      logger: '%$Psr\Log\LoggerInterface'
+      
+  KhalsaJio\ContentCreator\Services\ContentAIService:
+    constructor:
+      llmClient: '%$KhalsaJio\AI\Nexus\LLMClient'
+      structureService: '%$KhalsaJio\ContentCreator\Services\ContentStructureService'
+      populatorService: '%$KhalsaJio\ContentCreator\Services\ContentPopulatorService'
+      cacheService: '%$KhalsaJio\ContentCreator\Services\ContentCacheService'
+      logger: '%$Psr\Log\LoggerInterface'
+
+  KhalsaJio\ContentCreator\Services\ContentPopulatorService:
+    constructor:
+      cacheService: '%$KhalsaJio\ContentCreator\Services\ContentCacheService'
+      logger: '%$Psr\Log\LoggerInterface'
+
+  KhalsaJio\ContentCreator\Services\ContentGeneratorService:
+    constructor:
+      structureService: '%$KhalsaJio\ContentCreator\Services\ContentStructureService'
+      generatorService: '%$KhalsaJio\ContentCreator\Services\ContentAIService'
+      populatorService: '%$KhalsaJio\ContentCreator\Services\ContentPopulatorService'
+      logger: '%$Psr\Log\LoggerInterface'

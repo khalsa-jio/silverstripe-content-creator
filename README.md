@@ -2,6 +2,32 @@
 
 An AI-powered content generation module for Silverstripe CMS that allows content editors to create page content using natural language prompts. When creating a new page in the Silverstripe CMS, this module adds a button that opens a modal where users can input prompts to generate content. The AI will structure the content based on the available fields or Elemental blocks for that page type.
 
+## Architecture Overview
+
+The module has been factored to use a service-oriented architecture with specialized services that work together to provide content generation capabilities.
+
+### Core Services
+
+1. **ContentStructureService**
+   - Analyzes DataObject structure, fields, and relationships
+   - Determines which fields are eligible for content generation
+   - Handles relationship configuration and field metadata
+
+2. **ContentAIService**
+   - Handles communication with AI models via LLMClient
+   - Builds prompts based on DataObject structure
+   - Parses generated content from various formats
+   - Handles streaming and non-streaming content generation
+
+3. **ContentPopulatorService**
+   - Populates DataObjects with generated content
+   - Handles different field types appropriately
+   - Manages transactions for content application
+
+4. **ContentCacheService**
+   - Caches page structure and other data to improve performance
+   - Used by the other services for caching needs
+
 ![Silverstripe Content Creator Screenshot](docs/en/images/content-creator-screenshot.png)
 
 ## How it works
@@ -23,6 +49,68 @@ An AI-powered content generation module for Silverstripe CMS that allows content
 - Support for integration with various LLM providers (OpenAI, Anthropic, etc.)
 - Compatibility with the Silverstripe Populate module for filling content
 - Comprehensive unit and end-to-end tests
+
+## Usage of Services
+
+### Basic Usage
+
+```php
+use KhalsaJio\ContentCreator\Services\ContentStructureService;
+use KhalsaJio\ContentCreator\Services\ContentAIService;
+use KhalsaJio\ContentCreator\Services\ContentPopulatorService;
+use SilverStripe\Core\Injector\Injector;
+
+class MyController extends Controller
+{
+    public function generateContent($pageID, $prompt)
+    {
+        // Get the page to generate content for
+        $page = Page::get()->byID($pageID);
+        
+        // Get the AI service
+        $aiService = Injector::inst()->get(ContentAIService::class);
+        
+        // Get the populator service
+        $populatorService = Injector::inst()->get(ContentPopulatorService::class);
+        
+        // Generate content
+        $generatedContent = $aiService->generateContent($page, $prompt);
+        
+        // Populate the page with the generated content
+        $populatedPage = $populatorService->populateContent($page, $generatedContent);
+        
+        return $populatedPage;
+    }
+}
+```
+
+> **Note:** Previous versions of this module used the `ContentGeneratorService` as a façade for these services. This service is now deprecated and will be removed in a future release. Please use the specialized services directly as shown above.
+
+```php
+
+### Advanced Usage with Stream
+
+```php
+// Generate content with streaming responses
+$aiService->generateStreamContent(
+    $dataObject,
+    $prompt,
+    4000, // max tokens
+    0.7,  // temperature
+    function($text) {
+        // Handle each chunk of text as it comes in
+        echo $text;
+    },
+    function($parsedContent, $usage) {
+        // Handle completion
+        echo "Generation complete!";
+    },
+    function($exception) {
+        // Handle errors
+        echo "Error: " . $exception->getMessage();
+    }
+);
+```
 
 ## Requirements
 

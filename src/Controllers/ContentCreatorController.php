@@ -2,11 +2,10 @@
 
 namespace KhalsaJio\ContentCreator\Controllers;
 
-use KhalsaJio\AI\Nexus\LLMClient;
-use KhalsaJio\AI\Nexus\Provider\DefaultStreamResponseHandler;
-use KhalsaJio\AI\Nexus\Util\SafetyManager;
 use KhalsaJio\ContentCreator\Models\ContentCreationEvent;
-use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
+use KhalsaJio\ContentCreator\Services\ContentAIService;
+use KhalsaJio\ContentCreator\Services\ContentPopulatorService;
+use KhalsaJio\ContentCreator\Services\ContentStructureService;
 use SilverStripe\Control\Controller;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Control\HTTPResponse;
@@ -86,8 +85,8 @@ class ContentCreatorController extends Controller
             return $this->jsonResponse(['error' => $dataObject['error'], 'success' => false, 'code' => $dataObject['code'] ?? 400], $dataObject['code'] ?? 400);
         }
 
-        /** @var ContentGeneratorService $contentGenerator */
-        $contentGenerator = Injector::inst()->get(ContentGeneratorService::class);
+        /** @var ContentAIService $contentGenerator */
+        $contentGenerator = Injector::inst()->get(ContentAIService::class);
 
         if ($streaming) {
             while (ob_get_level() > 0) {
@@ -183,8 +182,8 @@ class ContentCreatorController extends Controller
         }
 
         try {
-            $generator = Injector::inst()->get(ContentGeneratorService::class);
-            $structure = $generator->getPageFieldStructure($dataObject);
+            $structureService = Injector::inst()->get(ContentStructureService::class);
+            $structure = $structureService->getPageFieldStructure($dataObject);
 
             return $this->jsonResponse([
                 'success' => true,
@@ -234,8 +233,8 @@ class ContentCreatorController extends Controller
         }
 
         try {
-            $contentGeneratorService = Injector::inst()->get(ContentGeneratorService::class);
-            $contentGeneratorService->populateContent($dataObject, $contentData);
+            $populatorService = Injector::inst()->get(ContentPopulatorService::class);
+            $populatorService->populateContent($dataObject, $contentData);
 
             return $this->jsonResponse([
                 'success' => true,
@@ -398,8 +397,14 @@ class ContentCreatorController extends Controller
             /** @var ContentCreationEvent $event */
             $event = ContentCreationEvent::create();
             $event->Type = $success ? 'generation_completed' : 'generation_failed';
-            $event->DataObjectID = (int)$dataObjectID;
-            $event->DataObjectClass = (string)$dataObjectClass;
+            $event->RelatedObjectID = (int)$dataObjectID;
+            $event->RelatedObjectClass = (string)$dataObjectClass;
+            $event->Success = $success;
+
+            // Set token usage if available
+            if (!empty($usage) && isset($usage['total_tokens'])) {
+                $event->TokensUsed = (int)$usage['total_tokens'];
+            }
 
             $eventData = [
                 'prompt_length' => strlen($prompt),
