@@ -3,9 +3,10 @@
 namespace KhalsaJio\ContentCreator\Tests;
 
 use PHPUnit\Framework\TestCase;
-use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
+use KhalsaJio\ContentCreator\Services\ContentStructureService;
+use KhalsaJio\ContentCreator\Services\ContentAIService;
+use KhalsaJio\ContentCreator\Services\ContentPopulatorService;
 use KhalsaJio\AI\Nexus\LLMClient;
-use ReflectionMethod;
 use Psr\Log\LoggerInterface;
 use KhalsaJio\ContentCreator\Services\ContentCacheService;
 
@@ -125,7 +126,13 @@ class RelationshipFieldValidationTest extends TestCase
         // Mock the logger
         $mockLogger = $this->createMock(LoggerInterface::class);
 
-        $this->service = new ContentGeneratorService($mockLLMClient, $mockCacheService, $mockLogger);
+        // Create the structure service
+        $mockStructureService = $this->createMock(ContentStructureService::class);
+        
+        // Create the populator service
+        $mockPopulatorService = $this->createMock(ContentPopulatorService::class);
+
+        $this->service = new ContentAIService($mockLLMClient, $mockStructureService, $mockPopulatorService, $mockCacheService, $mockLogger);
     }
 
     /**

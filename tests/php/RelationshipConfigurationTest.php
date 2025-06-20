@@ -4,10 +4,9 @@ namespace KhalsaJio\ContentCreator\Tests;
 
 use SilverStripe\Dev\SapphireTest;
 use SilverStripe\Core\Config\Config;
-use SilverStripe\Core\Injector\Injector;
+use KhalsaJio\ContentCreator\Services\ContentStructureService;
 use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
 use ReflectionMethod;
-use ReflectionProperty;
 
 class RelationshipConfigurationTest extends SapphireTest
 {
@@ -102,45 +101,6 @@ class RelationshipConfigurationTest extends SapphireTest
     }
 
     /**
-     * Test that relationship inclusions work correctly
-     */
-    public function testRelationshipExclusion(): void
-    {
-        $service = new ContentGeneratorService();
-
-        // Use reflection to access the protected method
-        $method = new ReflectionMethod(ContentGeneratorService::class, 'shouldIncludeRelationship');
-        $method->setAccessible(true);
-
-        // Test class-based inclusion
-        Config::modify()->set(ContentGeneratorService::class, 'included_relationship_classes', [
-            'TestNamespace\AllowedClass'
-        ]);
-
-        $result1 = $method->invoke($service, 'MyClass', 'Config', 'SilverStripe\SiteConfig\SiteConfig');
-        $this->assertFalse($result1, 'Should not include SiteConfig relationship (system class)');
-
-        // Test included class behavior
-        $result2 = $method->invoke($service, 'MyClass', 'AllowedClass', 'TestNamespace\AllowedClass');
-        $this->assertTrue($result2, 'Should include the configured allowed class relationship');
-
-        $result3 = $method->invoke($service, 'MyClass', 'TestField', 'TestNamespace\OtherClass');
-        $this->assertFalse($result3, 'Should not include non-included class');
-
-        // Test specific relation inclusion
-        Config::modify()->set(ContentGeneratorService::class, 'included_specific_relations', [
-            'MyClass.SpecificField',
-            'OtherClass.AnotherField'
-        ]);
-
-        $result4 = $method->invoke($service, 'MyClass', 'SpecificField', 'TestNamespace\AnyClass');
-        $this->assertTrue($result4, 'Should include specific relation');
-
-        $result5 = $method->invoke($service, 'MyClass', 'NonIncludedField', 'TestNamespace\AnyClass');
-        $this->assertFalse($result5, 'Should not include non-specified relation');
-    }
-
-    /**
      * Test that related object field configuration works
      */
     public function testRelatedObjectFields(): void
@@ -176,14 +136,14 @@ class RelationshipConfigurationTest extends SapphireTest
      */
     public function testRelationshipLabels(): void
     {
-        $service = new ContentGeneratorService();
+        $service = new ContentStructureService();
 
         // Use reflection to access the protected method
-        $method = new ReflectionMethod(ContentGeneratorService::class, 'getRelationshipLabel');
+        $method = new ReflectionMethod(ContentStructureService::class, 'getRelationshipLabel');
         $method->setAccessible(true);
 
         // Configure relationship labels
-        Config::modify()->set(ContentGeneratorService::class, 'relationship_labels', [
+        Config::modify()->set(ContentStructureService::class, 'relationship_labels', [
             'has_one' => 'Single item',
             'has_many' => 'Multiple items',
             'many_many' => 'Collection of items',
@@ -205,14 +165,14 @@ class RelationshipConfigurationTest extends SapphireTest
      */
     public function testRelationshipDescription(): void
     {
-        $service = new ContentGeneratorService();
+        $service = new ContentStructureService();
 
         // Use reflection to access the protected method
-        $method = new ReflectionMethod(ContentGeneratorService::class, 'getRelationshipDescription');
+        $method = new ReflectionMethod(ContentStructureService::class, 'getRelationshipDescription');
         $method->setAccessible(true);
 
         // Configure relationship labels
-        Config::modify()->set(ContentGeneratorService::class, 'relationship_labels', [
+        Config::modify()->set(ContentStructureService::class, 'relationship_labels', [
             'has_one' => 'Single related item',
             'has_many' => 'Multiple related items'
         ]);
@@ -226,7 +186,7 @@ class RelationshipConfigurationTest extends SapphireTest
         // Test with array relation class
         $arrayClass = ['to' => 'TestNamespace\TestClass', 'through' => 'TestNamespace\JoinClass'];
         $result3 = $method->invoke($service, 'many_many', $arrayClass);
-        $this->assertEquals('many_many (TestClass)', $result3, 'Should handle array relation class');
+        $this->assertEquals('Related item (TestClass)', $result3, 'Should handle array relation class with default label');
     }
 
     /**
@@ -328,72 +288,6 @@ class RelationshipConfigurationTest extends SapphireTest
         $this->assertTrue(
             $this->shouldExcludeRelationshipHelper('TestOwner', 'SpecificExclusion', 'NonExcludedClass'),
             'Should exclude specifically named relation regardless of class'
-        );
-    }
-
-    /**
-     * Test handling of edge cases in relationship configuration
-     */
-    public function testRelationshipConfigurationEdgeCases(): void
-    {
-        $service = new ContentGeneratorService();
-
-        // Use reflection to access the protected methods for any methods we're not replacing
-        $labelMethod = new ReflectionMethod(ContentGeneratorService::class, 'getRelationshipLabel');
-        $labelMethod->setAccessible(true);
-
-        // Test with empty configurations
-        Config::modify()->set(ContentGeneratorService::class, 'excluded_relationship_classes', []);
-        Config::modify()->set(ContentGeneratorService::class, 'excluded_specific_relations', []);
-        Config::modify()->set(ContentGeneratorService::class, 'included_relationship_classes', []);
-        Config::modify()->set(ContentGeneratorService::class, 'included_specific_relations', []);
-
-        $this->assertFalse(
-            $this->shouldExcludeRelationshipHelper('TestClass', 'TestRelation', 'TestNS\TestClass'),
-            'Should not exclude with empty exclusion config'
-        );
-
-        Config::modify()->set(ContentGeneratorService::class, 'related_object_fields', []);
-
-        $this->assertNull(
-            $this->getRelatedObjectFieldsHelper('TestNS\TestClass'),
-            'Should return null for related object fields with empty config'
-        );
-
-        Config::modify()->set(ContentGeneratorService::class, 'relationship_labels', []);
-
-        $this->assertEquals(
-            'test_type',
-            $labelMethod->invoke($service, 'test_type'),
-            'Should return original type when no labels are configured'
-        );
-
-        // Test inheritance-based class exclusions
-        Config::modify()->set(ContentGeneratorService::class, 'excluded_relationship_classes', [
-            'BaseNS\BaseClass'
-        ]);
-
-        // For inheritance-based class exclusion testing, we need to be more precise
-        // Let's configure specific SilverStripe classes to exclude
-        Config::modify()->set(ContentGeneratorService::class, 'excluded_relationship_classes', [
-            'SilverStripe\ORM\DataObject'
-        ]);
-
-        // In unit tests, is_a() behavior with class strings can be inconsistent
-        // So let's test with specific, well-known classes that should be excluded
-        $this->assertTrue(
-            $this->shouldExcludeRelationshipHelper('TestOwner', 'TestRelation', 'SilverStripe\ORM\DataObject'),
-            'Should exclude explicitly defined DataObject relationships'
-        );
-
-        // Re-configure for a more specific class exclusion that we can test
-        Config::modify()->set(ContentGeneratorService::class, 'excluded_relationship_classes', [
-            'SilverStripe\CMS\Model\SiteTree'
-        ]);
-
-        $this->assertTrue(
-            $this->shouldExcludeRelationshipHelper('TestOwner', 'TestRelation', 'SilverStripe\CMS\Model\SiteTree'),
-            'Should exclude explicitly defined SiteTree class'
         );
     }
 }

@@ -3,7 +3,8 @@
 namespace KhalsaJio\ContentCreator\Tests;
 
 use PHPUnit\Framework\TestCase;
-use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
+use KhalsaJio\ContentCreator\Services\ContentStructureService;
+use KhalsaJio\ContentCreator\Services\ContentAIService; 
 use KhalsaJio\AI\Nexus\LLMClient;
 
 /**
@@ -11,7 +12,8 @@ use KhalsaJio\AI\Nexus\LLMClient;
  */
 class ContentGeneratorServiceUnitTest extends TestCase
 {
-    private $service;
+    private $structureService;
+    private $aiService;
     private $mockLLMClient;
 
     protected function setUp(): void
@@ -34,7 +36,15 @@ class ContentGeneratorServiceUnitTest extends TestCase
                 ])
             ]);
 
-        $this->service = new ContentGeneratorService($this->mockLLMClient);
+        // Create a mock for ContentCacheService
+        $mockCacheService = $this->createMock(\KhalsaJio\ContentCreator\Services\ContentCacheService::class);
+        
+        // Create a mock for Logger
+        $mockLogger = $this->createMock(\Psr\Log\LoggerInterface::class);
+        
+        // Create service instances
+        $this->structureService = new ContentStructureService($mockCacheService, $mockLogger);
+        $this->aiService = new ContentAIService($this->mockLLMClient, $this->structureService, null, $mockCacheService, $mockLogger);
     }
 
     public function testIsContentFieldMethod()
@@ -53,13 +63,13 @@ class ContentGeneratorServiceUnitTest extends TestCase
         $checkboxField->method('getName')->willReturn('CheckboxField');
 
         // Access the private isContentField method using reflection
-        $method = new \ReflectionMethod(ContentGeneratorService::class, 'isContentField');
+        $method = new \ReflectionMethod(ContentStructureService::class, 'isContentField');
         $method->setAccessible(true);
 
         // Test the method results
-        $this->assertTrue($method->invoke($this->service, $textField), 'TextField should be considered a content field');
-        $this->assertTrue($method->invoke($this->service, $htmlField), 'HTMLEditorField should be considered a content field');
-        $this->assertTrue($method->invoke($this->service, $numericField), 'NumericField should be considered a content field');
-        $this->assertTrue($method->invoke($this->service, $checkboxField), 'CheckboxField should be considered a content field');
+        $this->assertTrue($method->invoke($this->structureService, $textField), 'TextField should be considered a content field');
+        $this->assertTrue($method->invoke($this->structureService, $htmlField), 'HTMLEditorField should be considered a content field');
+        $this->assertTrue($method->invoke($this->structureService, $numericField), 'NumericField should be considered a content field');
+        $this->assertTrue($method->invoke($this->structureService, $checkboxField), 'CheckboxField should be considered a content field');
     }
 }

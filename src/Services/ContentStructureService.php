@@ -10,6 +10,7 @@ use SilverStripe\Forms\TextField;
 use SilverStripe\Forms\URLField;
 use SilverStripe\Forms\DateField;
 use SilverStripe\Forms\EmailField;
+use SilverStripe\Core\Config\Config;
 use SilverStripe\Forms\ListboxField;
 use SilverStripe\Forms\NumericField;
 use SilverStripe\Forms\CheckboxField;
@@ -419,11 +420,16 @@ class ContentStructureService extends BaseContentService
      *
      * @param string $className The class that has the relationship
      * @param string $relationName The name of the relationship
-     * @param string $relationClass The class of the related object
+     * @param string|array $relationClass The class of the related object
      * @return bool
      */
-    protected function shouldIncludeRelationship(string $className, string $relationName, string $relationClass): bool
+    protected function shouldIncludeRelationship(string $className, string $relationName, $relationClass): bool
     {
+        // If relationClass is an array (e.g., for many_many with through), get the actual class
+        if (is_array($relationClass) && isset($relationClass['through'])) {
+            $relationClass = $relationClass['through'];
+        }
+
         // Get configuration
         $includedClasses = $this->config()->get('included_relationship_classes') ?: [];
         $includedSpecificRelations = $this->config()->get('included_specific_relations') ?: [];
@@ -450,7 +456,7 @@ class ContentStructureService extends BaseContentService
         // If included classes are specified, only include those
         if (!empty($includedClasses)) {
             foreach ($includedClasses as $includedClass) {
-                if (is_a($relationClass, $includedClass, true)) {
+                if (is_a($relationClass, $includedClass, true) || $relationClass == $includedClass) {
                     return true;
                 }
             }
@@ -473,21 +479,44 @@ class ContentStructureService extends BaseContentService
         $labels = $this->config()->get('relationship_labels');
         $baseDescription = $labels[$relationType] ?? 'Related item';
 
-        // Extract the actual class name from array format
-        if (is_array($relationClass) && isset($relationClass['to'])) {
-            $relationClass = $relationClass['to'];
-        }
-
         // Handle the case where there are no labels configured
         if (empty($labels)) {
             return $relationType;
         }
 
+        // Extract the actual class name from array format
+        if (is_array($relationClass) && isset($relationClass['to'])) {
+            $relationClass = $relationClass['to'];
+        }
+
         // Get the short class name (without namespace)
-        $shortClassName = explode('\\', $relationClass);
-        $shortClassName = end($shortClassName);
+        $shortClassName = $this->getShortClassName($relationClass);
 
         return "$baseDescription ($shortClassName)";
+    }
+    
+    /**
+     * Helper method to get short class name
+     *
+     * @param string $className
+     * @return string
+     */
+    private function getShortClassName(string $className): string 
+    {
+        $parts = explode('\\', $className);
+        return end($parts);
+    }
+
+    /**
+     * Get the display label for a relationship type
+     *
+     * @param string $relationType The type of relation (has_one, has_many, etc.)
+     * @return string The human-readable label
+     */
+    protected function getRelationshipLabel(string $relationType): string
+    {
+        $labels = $this->config()->get('relationship_labels');
+        return $labels[$relationType] ?? $relationType;
     }
 
     /**

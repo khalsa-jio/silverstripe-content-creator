@@ -4,10 +4,10 @@ namespace KhalsaJio\ContentCreator\Tests;
 
 use SilverStripe\Dev\SapphireTest;
 use SilverStripe\Core\Config\Config;
-use SilverStripe\Core\Injector\Injector;
+use KhalsaJio\ContentCreator\Services\ContentStructureService;
+use KhalsaJio\ContentCreator\Services\ContentAIService;
 use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
 use ReflectionMethod;
-use ReflectionProperty;
 
 /**
  * Tests for relationship configuration in the content generation process
@@ -19,21 +19,21 @@ class RelationshipIntegrationTest extends SapphireTest
      */
     public function testRelationshipConfigAffectsElementFields(): void
     {
-        $service = new ContentGeneratorService();
+        $service = new ContentStructureService();
 
         // Instead of using the method directly with a real class, we'll create a test structure
         // and use the shouldIncludeRelationship method to check which relationships would be included
-        $shouldIncludeMethod = new ReflectionMethod(ContentGeneratorService::class, 'shouldIncludeRelationship');
+        $shouldIncludeMethod = new ReflectionMethod(ContentStructureService::class, 'shouldIncludeRelationship');
         $shouldIncludeMethod->setAccessible(true);
 
         // Configure the included relationships
-        Config::modify()->set(ContentGeneratorService::class, 'included_relationship_classes', [
+        Config::modify()->set(ContentStructureService::class, 'included_relationship_classes', [
             TestHasOneClass::class,
             TestHasManyClass::class,
             TestManyManyClass::class
         ]);
 
-        Config::modify()->set(ContentGeneratorService::class, 'included_specific_relations', [
+        Config::modify()->set(ContentStructureService::class, 'included_specific_relations', [
             TestElement::class . '.TestHasOne',
             TestElement::class . '.TestHasMany',
             TestElement::class . '.TestManyMany'
@@ -56,11 +56,11 @@ class RelationshipIntegrationTest extends SapphireTest
             'Many_many with excluded class types should not be included'
         );
 
-        // In the inclusion model, relationships not specified in included_specific_relations are excluded by default
-        // SpecificExcludedHasOne is not in our included_specific_relations, so it should be excluded
-        $this->assertFalse(
+        // In the inclusion model, class-based inclusions will include relationships of that class type
+        // SpecificExcludedHasOne is not in included_specific_relations, but TestHasOneClass is in included_relationship_classes
+        $this->assertTrue(
             $shouldIncludeMethod->invoke($service, TestElement::class, 'SpecificExcludedHasOne', TestHasOneClass::class),
-            'Relations not specifically included should be excluded'
+            'Relations of included classes should be included even if not specifically included'
         );
 
         // Test included relationships
@@ -103,20 +103,20 @@ class RelationshipIntegrationTest extends SapphireTest
         );
 
         // Test relationship labels from YAML
-        Config::modify()->set(ContentGeneratorService::class, 'relationship_labels', [
+        Config::modify()->set(ContentStructureService::class, 'relationship_labels', [
             'has_one' => 'Single related item',
             'has_many' => 'Multiple related items',
             'many_many' => 'Collection of items'
         ]);
 
-        $labels = Config::inst()->get(ContentGeneratorService::class, 'relationship_labels');
+        $labels = Config::inst()->get(ContentStructureService::class, 'relationship_labels');
         $this->assertIsArray($labels, 'Relationship labels should be defined in YAML');
         $this->assertArrayHasKey('has_one', $labels, 'has_one label should be defined in YAML');
 
-        $labelMethod = new ReflectionMethod(ContentGeneratorService::class, 'getRelationshipLabel');
+        $labelMethod = new ReflectionMethod(ContentStructureService::class, 'getRelationshipLabel');
         $labelMethod->setAccessible(true);
 
-        $service = new ContentGeneratorService();
+        $service = new ContentStructureService();
         $hasOneLabel = $labelMethod->invoke($service, 'has_one');
         $this->assertEquals('Single related item', $hasOneLabel, 'has_one should have correct label from YAML');
     }
@@ -126,10 +126,10 @@ class RelationshipIntegrationTest extends SapphireTest
      */
     public function testFormatStructureUsesRelationshipLabels(): void
     {
-        $service = new ContentGeneratorService();
+        $service = new ContentAIService();
 
         // Get the formatStructureForPrompt method
-        $method = new ReflectionMethod(ContentGeneratorService::class, 'formatStructureForPrompt');
+        $method = new ReflectionMethod(ContentAIService::class, 'formatStructureForPrompt');
         $method->setAccessible(true);
 
         // Create a test structure with relationships

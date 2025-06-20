@@ -4,7 +4,9 @@ namespace KhalsaJio\ContentCreator\Tests;
 
 use SilverStripe\Dev\SapphireTest;
 use SilverStripe\Core\Config\Config;
+use KhalsaJio\ContentCreator\Services\ContentStructureService;
 use KhalsaJio\ContentCreator\Services\ContentGeneratorService;
+use KhalsaJio\ContentCreator\Services\ContentAIService;
 use ReflectionMethod;
 
 /**
@@ -30,8 +32,8 @@ class RelationshipConfigurationIntegrationTest extends SapphireTest
      */
     protected function getElementFieldsHelper(string $elementClass): array
     {
-        $service = new ContentGeneratorService();
-        $method = new ReflectionMethod(ContentGeneratorService::class, 'getObjectFieldStructure');
+        $service = new ContentStructureService();
+        $method = new ReflectionMethod(ContentStructureService::class, 'getObjectFieldStructure');
         $method->setAccessible(true);
 
         return $method->invoke($service, $elementClass, false);
@@ -224,9 +226,10 @@ class RelationshipConfigurationIntegrationTest extends SapphireTest
         ];
 
         // Format the structure
-        $formatMethod = new ReflectionMethod(ContentGeneratorService::class, 'formatStructureForPrompt');
+        $aiService = new ContentAIService();
+        $formatMethod = new ReflectionMethod(ContentAIService::class, 'formatStructureForPrompt');
         $formatMethod->setAccessible(true);
-        $formatted = $formatMethod->invoke($service, $structure);
+        $formatted = $formatMethod->invoke($aiService, $structure);
 
         $this->assertStringContainsString('Single related item (TestHasOneClass)', $formatted);
         $this->assertStringContainsString('TestHasOne', $formatted);
@@ -238,18 +241,18 @@ class RelationshipConfigurationIntegrationTest extends SapphireTest
      */
     public function testRelationshipLabelFunctionality(): void
     {
-        $service = new ContentGeneratorService();
+        $service = new ContentStructureService();
 
         // Access the getRelationshipLabel method
-        $labelMethod = new ReflectionMethod(ContentGeneratorService::class, 'getRelationshipLabel');
+        $labelMethod = new ReflectionMethod(ContentStructureService::class, 'getRelationshipLabel');
         $labelMethod->setAccessible(true);
 
         // Store the original configuration
-        $originalLabels = Config::inst()->get(ContentGeneratorService::class, 'relationship_labels');
+        $originalLabels = Config::inst()->get(ContentStructureService::class, 'relationship_labels');
 
         try {
             // Configure custom relationship labels
-            Config::modify()->set(ContentGeneratorService::class, 'relationship_labels', [
+            Config::modify()->set(ContentStructureService::class, 'relationship_labels', [
                 'has_one' => 'Single connected item',
                 'has_many' => 'Multiple connected items',
                 'many_many' => 'Collection of items',
