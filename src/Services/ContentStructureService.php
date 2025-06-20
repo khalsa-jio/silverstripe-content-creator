@@ -3,6 +3,7 @@
 namespace KhalsaJio\ContentCreator\Services;
 
 use Exception;
+use SilverStripe\Forms\GridField\GridField;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\Core\ClassInfo;
 use SilverStripe\Forms\FormField;
@@ -84,7 +85,7 @@ class ContentStructureService extends BaseContentService
      * @return array The field structure
      * @throws Exception If there's an error generating the field structure
      */
-    public function getPageFieldStructure(DataObject $dataObject, bool $refreshCache = false): array
+    public function getPageFieldStructure(DataObject $dataObject, bool $refreshCache = true): array
     {
         $cacheKey = $this->cacheService->generateCacheKey($dataObject);
 
@@ -95,36 +96,9 @@ class ContentStructureService extends BaseContentService
         return $this->cacheService->getOrCreate(
             $cacheKey,
             function () use ($dataObject) {
-                return $this->generateFieldStructure($dataObject);
+                return $this->getObjectFieldStructure($dataObject);
             }
         );
-    }
-
-    /**
-     * Generate the field structure for a DataObject
-     *
-     * @param DataObject $dataObject
-     * @return array
-     */
-    protected function generateFieldStructure(DataObject $dataObject): array
-    {
-        $structure = $this->getObjectFieldStructure($dataObject);
-        $elementalAreas = $this->getElementalAreas($dataObject);
-
-        // Add elemental areas to structure if exists
-        if (!empty($elementalAreas)) {
-            foreach ($elementalAreas as $areaName => $areaInfo) {
-                $structure[] = [
-                    'name' => $areaName,
-                    'title' => $areaInfo['title'],
-                    'type' => 'ElementalArea',
-                    'description' => 'Content blocks area',
-                    'allowedElementTypes' => $this->getAllowedElementTypes($dataObject, $areaName, $areaInfo['area'])
-                ];
-            }
-        }
-
-        return $structure;
     }
 
     /**
@@ -132,14 +106,10 @@ class ContentStructureService extends BaseContentService
      *
      * @param DataObject $page The page to check against
      * @param string|null $areaName The name of the elemental area
-     * @param ElementalArea|null $area The ElementalArea object
      * @return array
      */
-    protected function getAllowedElementTypes(
-        DataObject $page = null,
-        string $areaName = null,
-        ElementalArea $area = null
-    ): array {
+    protected function getAllowedElementTypes( DataObject $page = null, string $areaName = null): array
+    {
         $allowedTypes = [];
 
         if ($page && $areaName) {
@@ -147,11 +117,9 @@ class ContentStructureService extends BaseContentService
             $scaffoldFields = $page->getCMSFields();
 
             // Try to find the GridField for this elemental area
-            foreach ($scaffoldFields->dataFieldsByName() as $fieldName => $field) {
-                if ($fieldName === $areaName && $field instanceof \SilverStripe\Forms\GridField\GridField) {
-                    $gridField = $field;
-                    break;
-                }
+            $field = $scaffoldFields->fieldByName($areaName);
+            if ($field instanceof GridField) {
+                $gridField = $field;
             }
 
             if ($gridField) {
@@ -165,7 +133,7 @@ class ContentStructureService extends BaseContentService
                         $allowedTypes[] = [
                             'class' => $normalizedClassName,
                             'title' => $title,
-                            'fields' => $this->getObjectFieldStructure($normalizedClassName, false)
+                            'fields' => $this->getObjectFieldStructure($normalizedClassName)
                         ];
                     }
 
@@ -202,7 +170,7 @@ class ContentStructureService extends BaseContentService
                 $elementTypes[] = [
                     'class' => $className,
                     'title' => $title,
-                    'fields' => $this->getObjectFieldStructure($className, false)
+                    'fields' => $this->getObjectFieldStructure($className)
                 ];
             }
 
@@ -225,7 +193,7 @@ class ContentStructureService extends BaseContentService
                 $elementTypes[] = [
                     'class' => $className,
                     'title' => $singleton->getType(),
-                    'fields' => $this->getObjectFieldStructure($className, false)
+                    'fields' => $this->getObjectFieldStructure($className)
                 ];
             }
         }
@@ -317,10 +285,9 @@ class ContentStructureService extends BaseContentService
         }
 
         // Add has_one relationship fields
-        $hasOneRelations = $object->config()->get('has_one');
-        if ($hasOneRelations) {
+        $hasOneRelations = $object->config()->get('has_one') ?: [];
+        if (!empty($hasOneRelations)) {
             foreach ($hasOneRelations as $relationName => $relationClass) {
-                // Skip ElementalArea relations as they are handled separately
                 if (is_a($relationClass, ElementalArea::class, true)) {
                     continue;
                 }
@@ -346,15 +313,15 @@ class ContentStructureService extends BaseContentService
                         'type' => 'has_one',
                         'relationClass' => $relationClass,
                         'description' => $this->getRelationshipDescription('has_one', $relationClass),
-                        'fields' => $this->getObjectFieldStructure($relationClass, false, $depth + 1)
+                        'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1)
                     ];
                 }
             }
         }
 
         // Add has_many relationship fields
-        $hasManyRelations = $object->config()->get('has_many');
-        if ($hasManyRelations) {
+        $hasManyRelations = $object->config()->get('has_many') ?: [];
+        if (!empty($hasManyRelations)) {
             foreach ($hasManyRelations as $relationName => $relationClass) {
                 // Skip relationships that are not explicitly included
                 if (!$this->shouldIncludeRelationship($className, $relationName, $relationClass)) {
@@ -367,14 +334,14 @@ class ContentStructureService extends BaseContentService
                     'type' => 'has_many',
                     'relationClass' => $relationClass,
                     'description' => $this->getRelationshipDescription('has_many', $relationClass),
-                    'fields' => $this->getObjectFieldStructure($relationClass, false, $depth + 1)
+                    'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1)
                 ];
             }
         }
 
         // Add many_many relationship fields
-        $manyManyRelations = $object->config()->get('many_many');
-        if ($manyManyRelations) {
+        $manyManyRelations = $object->config()->get('many_many') ?: [];
+        if (!empty($manyManyRelations)) {
             foreach ($manyManyRelations as $relationName => $relationClass) {
                 // Skip relationships that are not explicitly included
                 if (!$this->shouldIncludeRelationship($className, $relationName, $relationClass)) {
@@ -387,14 +354,14 @@ class ContentStructureService extends BaseContentService
                     'type' => 'many_many',
                     'relationClass' => $relationClass,
                     'description' => $this->getRelationshipDescription('many_many', $relationClass),
-                    'fields' => $this->getObjectFieldStructure($relationClass, false, $depth + 1)
+                    'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1)
                 ];
             }
         }
 
         // Check for belongs_many_many relationship fields
-        $belongsManyManyRelations = $object->config()->get('belongs_many_many');
-        if ($belongsManyManyRelations) {
+        $belongsManyManyRelations = $object->config()->get('belongs_many_many') ?: [];
+        if (!empty($belongsManyManyRelations)) {
             foreach ($belongsManyManyRelations as $relationName => $relationClass) {
                 // Skip relationships that are not explicitly included
                 if (!$this->shouldIncludeRelationship($className, $relationName, $relationClass)) {
@@ -408,6 +375,20 @@ class ContentStructureService extends BaseContentService
                     'relationClass' => $relationClass,
                     'description' => $this->getRelationshipDescription('belongs_many_many', $relationClass),
                     'fields' => $this->getObjectFieldStructure($relationClass, false, $depth + 1)
+                ];
+            }
+        }
+
+        if ($includeElementalAreas) {
+            $elementalAreas = $this->getElementalAreas($object);
+
+            foreach ($elementalAreas as $areaName => $areaInfo) {
+                $fields[] = [
+                    'name' => $areaName,
+                    'title' => $areaInfo['title'],
+                    'type' => 'ElementalArea',
+                    'description' => 'Content blocks area',
+                    'allowedElementTypes' => $this->getAllowedElementTypes($object, $areaName)
                 ];
             }
         }
@@ -435,10 +416,13 @@ class ContentStructureService extends BaseContentService
         $includedSpecificRelations = $this->config()->get('included_specific_relations') ?: [];
         $excludedSystemClasses = $this->config()->get('default_excluded_system_classes') ?: [];
 
-        // Allow extensions to update these configurations
-        $this->extend('updateIncludedRelationshipClasses', $includedClasses);
-        $this->extend('updateIncludedSpecificRelations', $includedSpecificRelations);
-        $this->extend('updateExcludedSystemClasses', $excludedSystemClasses);
+        // Allow extension to update these configurations
+        $this->extend(
+            'updateShouldIncludeRelationship',
+            $includedClasses,
+            $includedSpecificRelations,
+            $excludedSystemClasses
+        );
 
         // First check for specific inclusion
         $specificRelationKey = "$className.$relationName";
@@ -476,7 +460,7 @@ class ContentStructureService extends BaseContentService
      */
     protected function getRelationshipDescription(string $relationType, $relationClass): string
     {
-        $labels = $this->config()->get('relationship_labels');
+        $labels = $this->config()->get('relationship_labels') ?: [];
         $baseDescription = $labels[$relationType] ?? 'Related item';
 
         // Handle the case where there are no labels configured
@@ -515,7 +499,7 @@ class ContentStructureService extends BaseContentService
      */
     protected function getRelationshipLabel(string $relationType): string
     {
-        $labels = $this->config()->get('relationship_labels');
+        $labels = $this->config()->get('relationship_labels') ?: [];
         return $labels[$relationType] ?? $relationType;
     }
 
@@ -530,6 +514,10 @@ class ContentStructureService extends BaseContentService
         // First check if the field name is in the excluded list
         $excludedFieldNames = $this->config()->get('excluded_field_names') ?: [];
         $this->extend('updateExcludedFieldNames', $excludedFieldNames);
+        // Ensure $excludedFieldNames is always an array to prevent in_array() errors
+        if (!is_array($excludedFieldNames)) {
+            $excludedFieldNames = [];
+        }
 
         // If the field name is in the excluded list, it's not a content field
         // regardless of its type
@@ -598,8 +586,8 @@ class ContentStructureService extends BaseContentService
             return $areas;
         }
 
-        $hasOne = $page->config()->get('has_one');
-        if (!$hasOne) {
+        $hasOne = $page->config()->get('has_one') ?: [];
+        if (empty($hasOne)) {
             return $areas;
         }
 
@@ -609,7 +597,6 @@ class ContentStructureService extends BaseContentService
                 if ($area && $area->exists()) {
                     $areas[$relationName] = [
                         'title' => $this->formatFieldTitle($relationName),
-                        'area' => $area
                     ];
                 }
             }

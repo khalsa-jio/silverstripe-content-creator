@@ -46,10 +46,9 @@ class ContentStructureServiceTest extends SapphireTest
      */
     public function testGetPageFieldStructure()
     {
-        // For this test, we'll create a partial mock that overrides generateFieldStructure
         $service = $this->getMockBuilder(ContentStructureService::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['generateFieldStructure', 'getObjectFieldStructure'])
+            ->onlyMethods(['getObjectFieldStructure'])
             ->getMock();
 
         // Set up the mock to return a static structure
@@ -67,10 +66,6 @@ class ContentStructureServiceTest extends SapphireTest
                 'description' => 'Main content'
             ]
         ];
-
-        $service->expects($this->any())
-            ->method('generateFieldStructure')
-            ->willReturn($mockStructure);
 
         $service->expects($this->any())
             ->method('getObjectFieldStructure')
