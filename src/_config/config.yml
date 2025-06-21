@@ -1,0 +1,5 @@
+---
+Name: content-creator-config
+---
+KhalsaJio\ContentCreator\Services\ContentStructureService:
+  show_page_structure: true

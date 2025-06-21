@@ -32,6 +32,14 @@ use Symbiote\GridFieldExtensions\GridFieldAddNewMultiClass;
 class ContentStructureService extends BaseContentService
 {
     /**
+     * Whether to show the page structure in the modal
+     *
+     * @config
+     * @var bool
+     */
+    private static $show_page_structure = true;
+
+    /**
      * List of Core CMS field names to exclude from content generation
      *
      * @config
@@ -76,6 +84,21 @@ class ContentStructureService extends BaseContentService
         'many_many' => 'Multiple related items',
         'belongs_many_many' => 'Referenced in multiple items'
     ];
+
+    /**
+     * Max depth for recursive field structure generation
+     */
+    private static $max_recursion_depth = 5;
+
+    /**
+     * Check if the page structure should be shown in the modal
+     *
+     * @return bool
+     */
+    public function shouldShowPageStructure(): bool
+    {
+        return (bool)Config::inst()->get(ContentStructureService::class, 'show_page_structure');
+    }
 
     /**
      * Get the field structure for a given DataObject, using cache
@@ -212,7 +235,7 @@ class ContentStructureService extends BaseContentService
     public function getObjectFieldStructure($objectOrClass, bool $includeElementalAreas = true, int $depth = 0): array
     {
         // Prevent infinite recursion
-        if ($depth > 2) {
+        if ($depth > $this->config()->get('max_recursion_depth')) {
             return []; // Stop at a max depth
         }
 
@@ -237,9 +260,11 @@ class ContentStructureService extends BaseContentService
         // Add regular content fields from CMS fields
         foreach ($scaffoldFields->dataFields() as $field) {
             if ($this->isContentField($field)) {
+                $fieldName = $field->getName();
+                
                 $fieldData = [
-                    'name' => $field->getName(),
-                    'title' => $field->Title() ?: $field->getName(),
+                    'name' => $fieldName,
+                    'title' => $field->Title() ?: $fieldName,
                     'type' => get_class($field),
                     'description' => $field->getDescription() ?: ''
                 ];
@@ -478,14 +503,14 @@ class ContentStructureService extends BaseContentService
 
         return "$baseDescription ($shortClassName)";
     }
-    
+
     /**
      * Helper method to get short class name
      *
      * @param string $className
      * @return string
      */
-    private function getShortClassName(string $className): string 
+    private function getShortClassName(string $className): string
     {
         $parts = explode('\\', $className);
         return end($parts);

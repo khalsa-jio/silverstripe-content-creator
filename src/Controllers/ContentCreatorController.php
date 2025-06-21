@@ -184,10 +184,12 @@ class ContentCreatorController extends Controller
         try {
             $structureService = Injector::inst()->get(ContentStructureService::class);
             $structure = $structureService->getPageFieldStructure($dataObject);
+            $showPageStructure = $structureService->shouldShowPageStructure();
 
             return $this->jsonResponse([
                 'success' => true,
-                'structure' => $structure
+                'structure' => $structure,
+                'showPageStructure' => $showPageStructure
             ]);
         } catch (\Exception $e) {
             return $this->jsonResponse([

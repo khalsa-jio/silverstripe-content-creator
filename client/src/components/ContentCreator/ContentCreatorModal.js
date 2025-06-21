@@ -28,6 +28,7 @@ const ContentCreatorModal = ({ show, onHide, dataObjectID, dataObjectClass }) =>
   const [error, setError] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
   const [pageStructure, setPageStructure] = useState([]);
+  const [showPageStructure, setShowPageStructure] = useState(false);
   const [step, setStep] = useState('prompt');
   const startTime = Date.now();
 
@@ -42,6 +43,7 @@ const ContentCreatorModal = ({ show, onHide, dataObjectID, dataObjectClass }) =>
 
       if (response.data.success) {
         setPageStructure(response.data.structure);
+        setShowPageStructure(response.data.showPageStructure !== undefined ? response.data.showPageStructure : true);
       } else {
         setError(response.data.error || 'Failed to fetch page structure');
       }
@@ -361,9 +363,11 @@ const ContentCreatorModal = ({ show, onHide, dataObjectID, dataObjectClass }) =>
               onCancel={onHide}
             />
 
-            <div className="mt-4">
-              <PageStructure structure={pageStructure} />
-            </div>
+            {showPageStructure && (
+              <div className="mt-4">
+                <PageStructure structure={pageStructure} />
+              </div>
+            )}
 
             {chatHistory.length > 0 && (
               <div className="mt-4">

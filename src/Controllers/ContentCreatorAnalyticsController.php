@@ -30,6 +30,32 @@ class ContentCreatorAnalyticsController extends Controller
         'analytics',
         'report',
     ];
+    
+    /**
+     * Override the default template
+     */
+    protected function init()
+    {
+        parent::init();
+        // Use a custom template instead of the default Controller.ss
+        // Using setTemplate without 'Layout' or 'main' refers to the outer template
+        $this->setTemplate(ContentCreatorAnalyticsController::class);
+    }
+
+    /**
+     * Set the custom template for this controller
+     * @param string $template The template name without file extension
+     */
+    public function setTemplate($template)
+    {
+        // Set the template for all actions
+        $this->templates = [
+            'index' => $template,
+            'analytics' => $template,
+            'report' => $template
+        ];
+        return $this;
+    }
 
     /**
      * Record an analytics event
