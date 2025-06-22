@@ -51,6 +51,7 @@ class ContentStructureService extends BaseContentService
         'OwnerClassName', 'ElementID', 'CMSEditLink', 'ExtraClass',
         'InlineEditable', 'CanViewType', 'CanEditType', 'HasBrokenFile',
         'HasBrokenLink', 'ReportClass', 'ShareTokenSalt', 'Priority',
+        'Parent',
     ];
 
     /**
@@ -88,7 +89,19 @@ class ContentStructureService extends BaseContentService
     /**
      * Max depth for recursive field structure generation
      */
-    private static $max_recursion_depth = 5;
+    private static $max_recursion_depth = 6;
+
+        /**
+     * Track classes that have been processed at each depth to prevent infinite recursion
+     * @var array
+     */
+    private $processedClasses = [];
+
+    /**
+     * Track the full path of class processing to detect circular references
+     * @var array
+     */
+    private $classPath = [];
 
     /**
      * Check if the page structure should be shown in the modal
@@ -116,10 +129,14 @@ class ContentStructureService extends BaseContentService
             $this->cacheService->delete($cacheKey);
         }
 
+        // Reset processed classes and path to prevent issues with previous requests
+        $this->processedClasses = [];
+        $this->classPath = [];
+
         return $this->cacheService->getOrCreate(
             $cacheKey,
             function () use ($dataObject) {
-                return $this->getObjectFieldStructure($dataObject);
+                return $this->getObjectFieldStructure($dataObject, true, 0, 'page-root');
             }
         );
     }
@@ -129,20 +146,94 @@ class ContentStructureService extends BaseContentService
      *
      * @param DataObject $page The page to check against
      * @param string|null $areaName The name of the elemental area
+     * @param int $depth Current recursion depth
      * @return array
      */
-    protected function getAllowedElementTypes( DataObject $page = null, string $areaName = null): array
+    protected function getAllowedElementTypes(DataObject $page = null, string $areaName = null, int $depth = 0): array
     {
+        // Prevent deep recursion
+        if ($depth >= $this->config()->get('max_recursion_depth')) {
+            return [];
+        }
+
+        // Create a specific path key that includes area name to avoid cycle detection conflicts
+        // when processing multiple ElementalAreas in the same block
+        $specificPathKey = $page ? ($depth . '-' . get_class($page) . '-' . $areaName) : null;
+        if ($specificPathKey && in_array($specificPathKey, $this->classPath)) {
+            // Skip if we've already processed this exact area to prevent cycles
+            return [];
+        }
+
+        // Add area-specific path key if we have one
+        if ($specificPathKey) {
+            $this->classPath[] = $specificPathKey;
+            $pathIndex = array_key_last($this->classPath);
+        }
+
         $allowedTypes = [];
 
         if ($page && $areaName) {
+            // First check if there's a config-level restriction for elements in this block
+            if ($page->hasExtension(ElementalAreasExtension::class)) {
+                $allowedClasses = $page->config()->get('allowed_elements');
+                if (!empty($allowedClasses)) {
+                    foreach ($allowedClasses as $className) {
+                        $singleton = singleton($className);
+                        if ($singleton->canCreate()) {
+                            // For blocks, make sure we're getting a clean field structure without cycle detection interference
+                            // by using a temporary clean path context
+                            $originalClassPath = $this->classPath;
+                            $this->classPath = [];
+
+                            // Include the area name in the context to avoid cycle detection issues
+                            // with multiple areas in the same block
+                            $fields = $this->getObjectFieldStructure($className, true, $depth + 1, "allowed-{$areaName}-{$className}");
+
+                            // Restore the original path context
+                            $this->classPath = $originalClassPath;
+
+                            $allowedTypes[] = [
+                                'class' => $className,
+                                'title' => $singleton->getType(),
+                                'fields' => $fields
+                            ];
+                        }
+                    }
+
+                    if (!empty($allowedTypes)) {
+                        return $allowedTypes;
+                    }
+                }
+            }
+
+            // If no config-level restrictions or no allowed elements found, try to find a GridField
             $gridField = null;
             $scaffoldFields = $page->getCMSFields();
 
             // Try to find the GridField for this elemental area
-            $field = $scaffoldFields->fieldByName($areaName);
+            // First try with dataFieldByName which handles nested fields better
+            $field = $scaffoldFields->dataFieldByName($areaName);
             if ($field instanceof GridField) {
                 $gridField = $field;
+            }
+
+            // If that didn't work, try with fieldByName which might help in some cases
+            if (!$gridField) {
+                $field = $scaffoldFields->fieldByName($areaName);
+                if ($field instanceof GridField) {
+                    $gridField = $field;
+                }
+            }
+
+            // For blocks with ElementalAreasExtension, look through all tabs
+            if (!$gridField && $page->hasExtension(ElementalAreasExtension::class)) {
+                foreach ($scaffoldFields->fieldByName('Root')->Tabs() as $tab) {
+                    $field = $tab->Fields()->dataFieldByName($areaName);
+                    if ($field instanceof GridField) {
+                        $gridField = $field;
+                        break;
+                    }
+                }
             }
 
             if ($gridField) {
@@ -156,7 +247,7 @@ class ContentStructureService extends BaseContentService
                         $allowedTypes[] = [
                             'class' => $normalizedClassName,
                             'title' => $title,
-                            'fields' => $this->getObjectFieldStructure($normalizedClassName)
+                            'fields' => $this->getObjectFieldStructure($normalizedClassName, true, $depth + 1)
                         ];
                     }
 
@@ -167,17 +258,28 @@ class ContentStructureService extends BaseContentService
             }
         }
 
-        return $this->getAllElementTypes($page);
+        // Clean up path key before returning
+        if (isset($pathIndex)) {
+            unset($this->classPath[$pathIndex]);
+        }
+
+        return $this->getAllElementTypes($page, $depth + 1);
     }
 
     /**
      * Get all available element types, filtered by page restrictions if applicable
      *
      * @param DataObject $page The page to check restrictions against
+     * @param int $depth Current recursion depth
      * @return array
      */
-    protected function getAllElementTypes(DataObject $page = null): array
+    protected function getAllElementTypes(DataObject $page = null, int $depth = 0): array
     {
+        // Prevent deep recursion
+        if ($depth >= $this->config()->get('max_recursion_depth')) {
+            return [];
+        }
+
         $elementTypes = [];
 
         // Only proceed if Elemental is installed
@@ -185,19 +287,53 @@ class ContentStructureService extends BaseContentService
             return $elementTypes;
         }
 
+        // First check if the page/block has specific allowed_elements in its config
+        if ($page) {
+            $allowedElements = $page->config()->get('allowed_elements');
+            if (!empty($allowedElements)) {
+                foreach ($allowedElements as $className) {
+                    if (class_exists($className)) {
+                        $singleton = singleton($className);
+                        if ($singleton->canCreate()) {
+                            $elementTypes[] = [
+                                'class' => $className,
+                                'title' => $singleton->getType(),
+                                'fields' => $this->getObjectFieldStructure($className, true, $depth + 1, "gridfield-{$className}")
+                            ];
+                        }
+                    }
+                }
+
+                if (!empty($elementTypes)) {
+                    return $elementTypes;
+                }
+            }
+        }
+
         // If a page is provided and has the ElementalAreasExtension, use its method
         if ($page && $page->hasExtension(ElementalAreasExtension::class)) {
             $elementalTypes = $page->getElementalTypes();
 
             foreach ($elementalTypes as $className => $title) {
+                // Use a clean path context for each element type
+                $originalClassPath = $this->classPath;
+                $this->classPath = [];
+
+                $fields = $this->getObjectFieldStructure($className, true, $depth + 1, "elemental-type-{$className}");
+
+                // Restore path context
+                $this->classPath = $originalClassPath;
+
                 $elementTypes[] = [
                     'class' => $className,
                     'title' => $title,
-                    'fields' => $this->getObjectFieldStructure($className)
+                    'fields' => $fields
                 ];
             }
 
-            return $elementTypes;
+            if (!empty($elementTypes)) {
+                return $elementTypes;
+            }
         }
 
         // Fallback for when no page is provided or it doesn't have the extension
@@ -213,10 +349,12 @@ class ContentStructureService extends BaseContentService
 
             $singleton = singleton($className);
             if ($singleton->canCreate()) {
+                $fields = $this->getObjectFieldStructure($className, true, $depth + 1, "element-base-{$className}");
+
                 $elementTypes[] = [
                     'class' => $className,
                     'title' => $singleton->getType(),
-                    'fields' => $this->getObjectFieldStructure($className)
+                    'fields' => $fields
                 ];
             }
         }
@@ -230,14 +368,47 @@ class ContentStructureService extends BaseContentService
      * @param mixed $objectOrClass DataObject instance or class name string
      * @param bool $includeElementalAreas Whether to include elemental areas in the structure
      * @param int $depth The current recursion depth
+     * @param string $fieldContext Optional field/relation name context for cycle detection
      * @return array The field structure
      */
-    public function getObjectFieldStructure($objectOrClass, bool $includeElementalAreas = true, int $depth = 0): array
+    public function getObjectFieldStructure($objectOrClass, bool $includeElementalAreas = true, int $depth = 0, string $fieldContext = ''): array
     {
-        // Prevent infinite recursion
+        // Prevent infinite recursion by checking depth
         if ($depth > $this->config()->get('max_recursion_depth')) {
             return []; // Stop at a max depth
         }
+
+        // Get class name for cycle detection
+        $className = is_string($objectOrClass) ? $objectOrClass : get_class($objectOrClass);
+
+        // Prevent recursion cycles by tracking classes we've already seen at each depth
+        if (!isset($this->processedClasses[$depth])) {
+            $this->processedClasses[$depth] = [];
+        }
+
+        // Include both depth and field context in the path key to allow the same class
+        // to be processed at different depths and in different contexts (e.g., multiple ElementalAreas)
+        $pathKey = $depth . '-' . $className . ($fieldContext ? "-{$fieldContext}" : '');
+
+        if (in_array($pathKey, $this->classPath)) {
+            // We have a circular reference in this specific context
+            return [];
+        }
+
+        // Only check class-level recursion if we don't have a specific field context
+        if (empty($fieldContext) && in_array($className, $this->processedClasses[$depth])) {
+            // We've already processed this class at this depth with no specific context, avoid recursion cycle
+            return [];
+        }
+
+        // Add this class to the processed list at this depth and to the path
+        if (empty($fieldContext)) {
+            $this->processedClasses[$depth][] = $className;
+        }
+        $this->classPath[] = $pathKey;
+
+        // We'll remove this class from the path when we're done with it
+        $pathIndex = array_key_last($this->classPath);
 
         $fields = [];
 
@@ -261,7 +432,7 @@ class ContentStructureService extends BaseContentService
         foreach ($scaffoldFields->dataFields() as $field) {
             if ($this->isContentField($field)) {
                 $fieldName = $field->getName();
-                
+
                 $fieldData = [
                     'name' => $fieldName,
                     'title' => $field->Title() ?: $fieldName,
@@ -312,8 +483,20 @@ class ContentStructureService extends BaseContentService
         // Add has_one relationship fields
         $hasOneRelations = $object->config()->get('has_one') ?: [];
         if (!empty($hasOneRelations)) {
+            $excludedFieldNames = $this->config()->get('excluded_field_names');
+            $this->extend('updateExcludedFieldNames', $excludedFieldNames);
+
             foreach ($hasOneRelations as $relationName => $relationClass) {
-                if (is_a($relationClass, ElementalArea::class, true)) {
+                // Skip explicitly excluded fields
+                if (in_array($relationName, $excludedFieldNames)) {
+                    continue;
+                }
+
+                // Always include ElementalArea relations
+                $isElementalArea = is_a($relationClass, ElementalArea::class, true);
+
+                if ($isElementalArea) {
+                    // Skip ElementalArea relations - these are handled later
                     continue;
                 }
 
@@ -338,7 +521,7 @@ class ContentStructureService extends BaseContentService
                         'type' => 'has_one',
                         'relationClass' => $relationClass,
                         'description' => $this->getRelationshipDescription('has_one', $relationClass),
-                        'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1)
+                        'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1, "has_one-{$relationName}")
                     ];
                 }
             }
@@ -359,7 +542,7 @@ class ContentStructureService extends BaseContentService
                     'type' => 'has_many',
                     'relationClass' => $relationClass,
                     'description' => $this->getRelationshipDescription('has_many', $relationClass),
-                    'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1)
+                    'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1, "has_many-{$relationName}")
                 ];
             }
         }
@@ -379,7 +562,7 @@ class ContentStructureService extends BaseContentService
                     'type' => 'many_many',
                     'relationClass' => $relationClass,
                     'description' => $this->getRelationshipDescription('many_many', $relationClass),
-                    'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1)
+                    'fields' => $this->getObjectFieldStructure($relationClass, true, $depth + 1, "many_many-{$relationName}")
                 ];
             }
         }
@@ -399,23 +582,67 @@ class ContentStructureService extends BaseContentService
                     'type' => 'belongs_many_many',
                     'relationClass' => $relationClass,
                     'description' => $this->getRelationshipDescription('belongs_many_many', $relationClass),
-                    'fields' => $this->getObjectFieldStructure($relationClass, false, $depth + 1)
+                    'fields' => $this->getObjectFieldStructure($relationClass, false, $depth + 1, "belongs_many_many-{$relationName}")
                 ];
             }
         }
 
-        if ($includeElementalAreas) {
+        // Only include ElementalAreas if we should and we haven't reached the max recursion depth
+        if ($includeElementalAreas && $depth <= $this->config()->get('max_recursion_depth')) {
+            // Get all ElementalAreas for this object
             $elementalAreas = $this->getElementalAreas($object);
 
             foreach ($elementalAreas as $areaName => $areaInfo) {
+                // Check the depth before adding allowed element types to prevent deep recursion
+                $allowedElementTypes = [];
+                if ($depth < $this->config()->get('max_recursion_depth')) {
+                    // Get allowed element types for this area
+                    $allowedElementTypes = $this->getAllowedElementTypes($object, $areaName, $depth + 1);
+
+                    // If no specific element types are found and this is a block with ElementalAreasExtension,
+                    // fallback to the config-level allowed_elements
+                    if (empty($allowedElementTypes) && $object->hasExtension(ElementalAreasExtension::class)) {
+                        $allowedElements = $object->config()->get('allowed_elements');
+                        if (!empty($allowedElements)) {
+                            foreach ($allowedElements as $className) {
+                                if (class_exists($className)) {
+                                    $singleton = singleton($className);
+                                    if ($singleton->canCreate()) {
+                                        // Use a clean path context to avoid interference from cycle detection
+                                        $originalClassPath = $this->classPath;
+                                        $this->classPath = [];
+
+                                        // Include area name and class name in the context to avoid cycle detection conflicts
+                                        $fields = $this->getObjectFieldStructure($className, true, $depth + 1, "allowed-{$areaName}-{$className}");
+
+                                        // Restore path context
+                                        $this->classPath = $originalClassPath;
+
+                                        $allowedElementTypes[] = [
+                                            'class' => $className,
+                                            'title' => $singleton->getType(),
+                                            'fields' => $fields
+                                        ];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 $fields[] = [
                     'name' => $areaName,
                     'title' => $areaInfo['title'],
                     'type' => 'ElementalArea',
                     'description' => 'Content blocks area',
-                    'allowedElementTypes' => $this->getAllowedElementTypes($object, $areaName)
+                    'allowedElementTypes' => $allowedElementTypes
                 ];
             }
+        }
+
+        // Remove this class from the path when we're done with it
+        if (isset($pathIndex)) {
+            unset($this->classPath[$pathIndex]);
         }
 
         return $fields;
@@ -434,6 +661,16 @@ class ContentStructureService extends BaseContentService
         // If relationClass is an array (e.g., for many_many with through), get the actual class
         if (is_array($relationClass) && isset($relationClass['through'])) {
             $relationClass = $relationClass['through'];
+        }
+
+        // Only include ElementalArea relationships if they're not the Parent relationship
+        // This prevents the Parent/ParentID fields from appearing in blocks
+        if (is_a($relationClass, ElementalArea::class, true)) {
+            // Exclude the Parent relationship which is a default in BaseElement
+            if ($relationName === 'Parent') {
+                return false;
+            }
+            return true;
         }
 
         // Get configuration
@@ -502,18 +739,6 @@ class ContentStructureService extends BaseContentService
         $shortClassName = $this->getShortClassName($relationClass);
 
         return "$baseDescription ($shortClassName)";
-    }
-
-    /**
-     * Helper method to get short class name
-     *
-     * @param string $className
-     * @return string
-     */
-    private function getShortClassName(string $className): string
-    {
-        $parts = explode('\\', $className);
-        return end($parts);
     }
 
     /**
@@ -598,30 +823,44 @@ class ContentStructureService extends BaseContentService
     }
 
     /**
-     * Get the elemental areas for a page
+     * Get the elemental areas for a page or any object
      *
-     * @param DataObject $page
+     * @param DataObject $object Any DataObject that might have ElementalArea relations
      * @return array
      */
-    protected function getElementalAreas(DataObject $page): array
+    protected function getElementalAreas(DataObject $object): array
     {
         $areas = [];
+        $hasOne = $object->config()->get('has_one') ?: [];
 
-        if (!$page->hasExtension(ElementalPageExtension::class)) {
-            return $areas;
-        }
-
-        $hasOne = $page->config()->get('has_one') ?: [];
         if (empty($hasOne)) {
             return $areas;
         }
 
-        foreach ($hasOne as $relationName => $className) {
-            if (is_a($className, ElementalArea::class, true)) {
-                $area = $page->$relationName();
+        // Get excluded field names
+        $excludedFieldNames = $this->config()->get('excluded_field_names');
+        $this->extend('updateExcludedFieldNames', $excludedFieldNames);
+
+        foreach ($hasOne as $relationName => $relationClass) {
+            if (in_array($relationName, $excludedFieldNames)) {
+                continue;
+            }
+
+            if (is_a($relationClass, ElementalArea::class, true)) {
+                // Get the relation using the getter method
+                $area = $object->$relationName();
+
                 if ($area && $area->exists()) {
                     $areas[$relationName] = [
                         'title' => $this->formatFieldTitle($relationName),
+                        'class' => $relationClass,
+                    ];
+                } else {
+                    // If area doesn't exist but it is defined as ElementalArea, still include it
+                    // This is needed for newly created objects that don't have areas written yet
+                    $areas[$relationName] = [
+                        'title' => $this->formatFieldTitle($relationName),
+                        'class' => $relationClass,
                     ];
                 }
             }

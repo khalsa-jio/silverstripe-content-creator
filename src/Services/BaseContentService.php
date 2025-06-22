@@ -64,4 +64,21 @@ abstract class BaseContentService
     {
         return str_replace('-', '\\', $class ?? '');
     }
+
+    /**
+     * Helper method to get short class name
+     *
+     * @param string $className
+     * @return string
+     */
+    protected function getShortClassName(string $className): string
+    {
+        // If not a class name with namespace, return as is
+        if (strpos($className, '\\') === false) {
+            return $className;
+        }
+
+        $parts = explode('\\', $className);
+        return end($parts);
+    }
 }

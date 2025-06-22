@@ -32,6 +32,8 @@ class ContentAIService extends BaseContentService
      */
     private $populatorService;
 
+    private static $use_compact_structure = false;
+
     /**
      * Constructor
      *
@@ -234,29 +236,19 @@ class ContentAIService extends BaseContentService
     public function buildSystemPrompt(DataObject $dataObject): string
     {
         $structure = $this->structureService->getPageFieldStructure($dataObject);
-        $structureDescription = $this->formatStructureForPrompt($structure);
+
+        if ($this->config()->get('use_compact_structure')) {
+            $structureDescription = $this->formatCompactStructureForPrompt($structure);
+        } else {
+            $structureDescription = $this->formatStructureForPrompt($structure);
+        }
 
         $systemPrompt = <<<EOT
-            You are an AI content generator for SilverStripe pages. Your task is to generate structured content based on the provided page structure.
-
-            The page structure is as follows:
+            Generate SilverStripe YAML content for page using this structure:
 
             $structureDescription
 
-            Use this structure to generate content that fits the fields, including:
-            - Text fields should contain relevant text.
-            - HTML fields should include proper HTML markup.
-            - Dropdowns and options should select from the provided options.
-            - Elemental areas should specify which blocks to create and their content.
-            - Relationship fields (has_one, has_many, many_many) should include appropriate related object data.
-
-            For relationship fields:
-            - Single related items (has_one): Provide an object with fields relevant to the related class
-            - Multiple related items (has_many/many_many): Provide an array of objects with fields relevant to the related class
-            - When relationship fields appear within elemental blocks, follow the same pattern
-            - Pay attention to relationship descriptions that explain what kind of data is expected
-
-            Always return the generated content in YAML format only, without any additional text.
+            Rules: Use FieldName for YAML keys, select from provided options, return YAML only.
         EOT;
 
         return $systemPrompt;
@@ -275,61 +267,368 @@ class ContentAIService extends BaseContentService
         // Handle different structure formats
         $fields = isset($structure['fields']) ? $structure['fields'] : $structure;
 
+        // Group standard fields and relationship fields
+        $standardFields = [];
+        $relationshipFields = [];
+        $elementalAreas = [];
+
+        // First pass - categorize fields to optimize presentation
         foreach ($fields as $field) {
             if ($field['type'] === 'ElementalArea') {
-                $result .= "- {$field['title']} ({$field['name']}): A content blocks area that can contain the following types of blocks:\n";
-
-                foreach ($field['allowedElementTypes'] as $elementType) {
-                    // Unsanitize class name for proper display
-                    $className = $this->unsanitiseClassName($elementType['class']);
-                    $result .= "  - {$elementType['title']} ({$className}): With fields:\n";
-
-                    foreach ($elementType['fields'] as $elementField) {
-                        $description = $elementField['description'] ? " - {$elementField['description']}" : '';
-
-                        // Handle relationship fields within elements
-                        if (in_array($elementField['type'], ['has_one', 'has_many', 'many_many'])) {
-                            $result .= "    - {$elementField['title']} ({$elementField['name']}) - type: {$elementField['type']}{$description}\n";
-                        } else {
-                            $result .= "    - {$elementField['title']} ({$elementField['name']}){$description}";
-
-                            // Include field options if available
-                            if (isset($elementField['options'])) {
-                                $result .= " Options: " . $this->formatOptionsForPrompt($elementField['options']);
-                            }
-
-                            $result .= "\n";
-                        }
-                    }
-                }
-            } elseif (in_array($field['type'], ['has_one', 'has_many', 'many_many'])) {
-                // Format relationship fields specially
-                $description = $field['description'] ? " - {$field['description']}" : '';
-                $result .= "- {$field['title']} ({$field['name']}) - type: {$field['type']}{$description}\n";
+                $elementalAreas[] = $field;
+            } elseif (in_array($field['type'], ['has_one', 'has_many', 'many_many', 'belongs_many_many'])) {
+                $relationshipFields[] = $field;
             } else {
-                $description = $field['description'] ? " - {$field['description']}" : '';
-                $result .= "- {$field['title']} ({$field['name']}): Field type {$field['type']}{$description}";
+                $standardFields[] = $field;
+            }
+        }
+
+        // Format standard fields first (typically shorter)
+        if (!empty($standardFields)) {
+            $result .= "CONTENT FIELDS:\n";
+            foreach ($standardFields as $field) {
+                $description = !empty($field['description']) ? " - {$field['description']}" : '';
+                $fieldType = $field['type'];
+
+                // Simplify field type for better LLM comprehension
+                $simpleType = $this->getShortClassName($fieldType);
+
+                $result .= "- {$field['title']} ({$field['name']}): {$simpleType}{$description}";
 
                 // Include field options if available
-                if (isset($field['options'])) {
-                    $result .= " Options: " . $this->formatOptionsForPrompt($field['options']);
+                if (isset($field['options']) && !empty($field['options'])) {
+                    $result .= " Options: " . $this->formatOptionsForPrompt($field['options'], true);
                 }
 
                 $result .= "\n";
             }
+            $result .= "\n";
         }
 
+        // Then format relationship fields
+        if (!empty($relationshipFields)) {
+            $result .= "RELATIONSHIPS:\n";
+            foreach ($relationshipFields as $field) {
+                $description = !empty($field['description']) ? " - {$field['description']}" : '';
+                $fieldType = $field['type'];
+                $simpleType = $this->getShortClassName($fieldType);
+                $result .= "- {$field['title']} ({$field['name']}) - {$simpleType}{$description}\n";
+
+                // Include the fields of the related class if available
+                if (isset($field['fields']) && is_array($field['fields']) && !empty($field['fields'])) {
+                    $result .= "  With fields:\n";
+                    foreach ($field['fields'] as $relatedField) {
+                        $relatedDescription = !empty($relatedField['description']) ? " - {$relatedField['description']}" : '';
+                        $fieldType = $relatedField['type'];
+                        $simpleType = $this->getShortClassName($fieldType);
+
+                        $result .= "    - {$relatedField['title']} ({$relatedField['name']}): {$simpleType}{$relatedDescription}\n";
+
+                        // Include field options if available
+                        if (isset($relatedField['options']) && !empty($relatedField['options'])) {
+                            $result .= "      Options: " . $this->formatOptionsForPrompt($relatedField['options'], true) . "\n";
+                        }
+                    }
+                }
+            }
+            $result .= "\n";
+        }
+
+        // Finally, format the ElementalAreas (most complex)
+        if (!empty($elementalAreas)) {
+            $result .= "CONTENT BLOCKS:\n";
+
+            // Store element type descriptions keyed by class name for reference
+            $elementTypeDescriptions = [];
+
+            foreach ($elementalAreas as $field) {
+                $result .= "- {$field['title']} ({$field['name']}): Can contain these block types:\n";
+
+                foreach ($field['allowedElementTypes'] as $elementType) {
+                    // Use full class name for clarity and consistency
+                    $fullClassName = $this->unsanitiseClassName($elementType['class']);
+
+                    // Always show which blocks are available in this specific area
+                    $result .= "  - {$elementType['title']} ({$fullClassName})";
+
+                    // If we haven't described this block type yet, describe its fields
+                    if (!isset($elementTypeDescriptions[$fullClassName])) {
+                        $result .= ": With fields:\n";
+
+                        // Group element fields by type for more efficient presentation
+                        $elemStandardFields = [];
+                        $elemRelationFields = [];
+                        $elemNestedAreas = [];
+
+                        foreach ($elementType['fields'] as $elementField) {
+                            if ($elementField['type'] === 'ElementalArea') {
+                                $elemNestedAreas[] = $elementField;
+                            } elseif (in_array($elementField['type'], ['has_one', 'has_many', 'many_many', 'belongs_many_many'])) {
+                                $elemRelationFields[] = $elementField;
+                            } else {
+                                $elemStandardFields[] = $elementField;
+                            }
+                        }
+
+                        // Standard fields first
+                        foreach ($elemStandardFields as $elementField) {
+                            $description = !empty($elementField['description']) ? " - {$elementField['description']}" : '';
+                            $fieldType = $elementField['type'];
+                            $simpleType = $this->getShortClassName($fieldType);
+
+                            $result .= "    - {$elementField['title']} ({$elementField['name']}): {$simpleType}{$description}";
+
+                            if (isset($elementField['options']) && !empty($elementField['options'])) {
+                                $result .= " Options: " . $this->formatOptionsForPrompt($elementField['options'], true);
+                            }
+
+                            $result .= "\n";
+                        }
+
+                        // Then relationship fields
+                        foreach ($elemRelationFields as $elementField) {
+                            $description = !empty($elementField['description']) ? " - {$elementField['description']}" : '';
+                            $fieldType = $elementField['type'];
+                            $simpleType = $this->getShortClassName($fieldType);
+                            $result .= "    - {$elementField['title']} ({$elementField['name']}) - {$simpleType}{$description}\n";
+
+                            // Include the fields of the related class if available
+                            if (isset($elementField['fields']) && is_array($elementField['fields']) && !empty($elementField['fields'])) {
+                                $result .= "      With fields:\n";
+                                foreach ($elementField['fields'] as $relatedField) {
+                                    $relatedDescription = !empty($relatedField['description']) ? " - {$relatedField['description']}" : '';
+                                    $fieldType = $relatedField['type'];
+
+                                    // Simplify field type for better LLM comprehension
+                                    $simpleType = $this->getShortClassName($fieldType);
+                                    $result .= "        - {$relatedField['title']} ({$relatedField['name']}): {$simpleType}{$relatedDescription}";
+
+                                    // Include field options if available
+                                    if (isset($relatedField['options']) && !empty($relatedField['options'])) {
+                                        $result .= " Options: " . $this->formatOptionsForPrompt($relatedField['options'], true);
+                                    }
+
+                                    $result .= "\n";
+                                }
+                            }
+                        }
+
+                        // Then nested ElementalAreas within the block
+                        foreach ($elemNestedAreas as $elementField) {
+                            $description = !empty($elementField['description']) ? " - {$elementField['description']}" : '';
+                            $result .= "    - {$elementField['title']} ({$elementField['name']}) - ElementalArea{$description}";
+                            $result .= ": Can contain these nested block types:\n";
+
+                            // Process the allowed element types for this nested area
+                            if (isset($elementField['allowedElementTypes']) && !empty($elementField['allowedElementTypes'])) {
+                                foreach ($elementField['allowedElementTypes'] as $nestedElementType) {
+                                    // Use full class name for consistency and clarity
+                                    $nestedFullClassName = $this->unsanitiseClassName($nestedElementType['class']);
+                                    $result .= "      - {$nestedElementType['title']} ({$nestedFullClassName})";
+
+                                    // If this element type has already been fully described elsewhere,
+                                    // just reference that it's already described
+                                    if (isset($elementTypeDescriptions[$nestedFullClassName])) {
+                                        $result .= " (fields described above)\n";
+                                    } else {
+                                        // If this is a new element type that hasn't been described yet,
+                                        // add a reference to see its full description elsewhere
+                                        $result .= "\n";
+                                    }
+                                }
+                            }
+                        }
+
+                        // Store this element type as processed
+                        $elementTypeDescriptions[$fullClassName] = true;
+                    } else {
+                        // Reference that we've described this block type already, but still show it's available here
+                        $result .= " (fields described above)\n";
+                    }
+                }
+                $result .= "\n";
+            }
+        }
+
+        return rtrim($result);
+    }
+
+    /**
+     * Format the structure in a compact way for prompt usage
+     * This is a more token-efficient version of formatStructureForPrompt
+     *
+     * @param array $structure
+     * @return string
+     */
+    public function formatCompactStructureForPrompt(array $structure): string
+    {
+        $result = '';
+        $fields = isset($structure['fields']) ? $structure['fields'] : $structure;
+        
+        // Group fields
+        $standardFields = [];
+        $relationshipFields = [];
+        $elementalAreas = [];
+        
+        foreach ($fields as $field) {
+            if ($field['type'] === 'ElementalArea') {
+                $elementalAreas[] = $field;
+            } elseif (in_array($field['type'], ['has_one', 'has_many', 'many_many', 'belongs_many_many'])) {
+                $relationshipFields[] = $field;
+            } else {
+                $standardFields[] = $field;
+            }
+        }
+        
+        // Ultra-compact standard fields
+        if (!empty($standardFields)) {
+            $result .= "FIELDS:\n";
+            foreach ($standardFields as $field) {
+                $result .= "- {$field['title']} ({$field['name']}): {$this->getShortClassName($field['type'])}";
+                
+                if (!empty($field['description'])) {
+                    $result .= " - {$field['description']}";
+                }
+                
+                if (isset($field['options']) && !empty($field['options'])) {
+                    $result .= " " . $this->formatOptionsForPrompt($field['options']);
+                }
+                
+                $result .= "\n";
+            }
+        }
+        
+        // Compact relationships with essential fields only
+        if (!empty($relationshipFields)) {
+            $result .= "RELATIONS:\n";
+            foreach ($relationshipFields as $field) {
+                $result .= "- {$field['title']} ({$field['name']}) - {$this->getShortClassName($field['type'])}";
+                
+                if (isset($field['fields']) && !empty($field['fields'])) {
+                    $result .= " [";
+                    $compactFields = [];
+                    foreach ($field['fields'] as $relField) {
+                        $compactFields[] = "{$relField['name']}:{$this->getShortClassName($relField['type'])}";
+                    }
+                    $result .= implode(',', $compactFields) . "]";
+                }
+                
+                $result .= "\n";
+            }
+        }
+        
+        // Hyper-compact elemental areas
+        if (!empty($elementalAreas)) {
+            $result .= "BLOCKS:\n";
+            $blockDefs = []; // Store unique block definitions
+            
+            foreach ($elementalAreas as $field) {
+                $result .= "- {$field['name']}: ";
+                $blockTypes = [];
+                
+                foreach ($field['allowedElementTypes'] as $elementType) {
+                    $className = $this->unsanitiseClassName($elementType['class']);
+                    $blockTypes[] = $className;
+                    
+                    // Store block definition if not already stored
+                    if (!isset($blockDefs[$className])) {
+                        $blockDefs[$className] = $this->formatBlockDefinition($elementType);
+                    }
+                }
+                
+                $result .= implode('|', $blockTypes) . "\n";
+            }
+            
+            // Add all block definitions at the end
+            foreach ($blockDefs as $className => $definition) {
+                $result .= "{$className}: {$definition}\n";
+            }
+        }
+        
+        return rtrim($result);
+    }
+
+    /**
+     * Format block definition in most compact way possible
+     *
+     * @param array $elementType
+     * @return string
+     */
+    private function formatBlockDefinition(array $elementType): string
+    {
+        $fields = [];
+        $nestedAreas = [];
+        
+        foreach ($elementType['fields'] as $field) {
+            if ($field['type'] === 'ElementalArea') {
+                $allowedTypes = [];
+                if (isset($field['allowedElementTypes'])) {
+                    foreach ($field['allowedElementTypes'] as $nestedType) {
+                        $allowedTypes[] = $this->unsanitiseClassName($nestedType['class']);
+                    }
+                }
+                $nestedAreas[] = "{$field['name']}:[" . implode('|', $allowedTypes) . "]";
+            } else {
+                $fieldDef = "{$field['name']}:{$this->getShortClassName($field['type'])}";
+                
+                if (isset($field['options']) && !empty($field['options'])) {
+                    $fieldDef .= $this->formatOptionsForPrompt($field['options']);
+                }
+                
+                // Add relationship field info inline
+                if (in_array($field['type'], ['has_one', 'has_many', 'many_many']) && isset($field['fields'])) {
+                    $relFields = [];
+                    foreach ($field['fields'] as $relField) {
+                        $relFields[] = "{$relField['name']}:{$this->getShortClassName($relField['type'])}";
+                    }
+                    $fieldDef .= "[" . implode(',', $relFields) . "]";
+                }
+                
+                $fields[] = $fieldDef;
+            }
+        }
+        
+        $result = implode(',', $fields);
+        if (!empty($nestedAreas)) {
+            $result .= "|" . implode(',', $nestedAreas);
+        }
+        
         return $result;
     }
 
     /**
      * Format field options into a human-readable string for the prompt
      *
-     * @param array $options
+     * @param array $options The options to format
+     * @param bool $condensed If true, uses a more token-efficient format
      * @return string
      */
-    protected function formatOptionsForPrompt(array $options): string
+    protected function formatOptionsForPrompt(array $options, bool $condensed = false): string
     {
+        if ($condensed) {
+            // Create a more compact representation for token efficiency
+            $keys = array_keys($options);
+
+            // If keys are numeric (0,1,2...), just show values
+            if (count($keys) > 0 && is_numeric($keys[0]) && $keys[0] == 0) {
+                $values = array_values($options);
+                return "[" . implode(", ", $values) . "]";
+            }
+
+            // Show all key-value pairs for completeness
+            $samples = [];
+            foreach ($options as $key => $value) {
+                if (is_array($value)) {
+                    $samples[] = "$key: [nested]";
+                } else {
+                    $samples[] = "$key: $value";
+                }
+            }
+
+            return "[" . implode(", ", $samples) . "]";
+        }
+
+        // Original verbose format
         $formattedOptions = [];
         foreach ($options as $key => $value) {
             if (is_array($value)) {

@@ -69,6 +69,12 @@ class ContentPopulatorService extends BaseContentService
             return;
         }
 
+        // Check for elemental areas first - this needs to take priority over standard has_one processing
+        if ($this->isElementalArea($dataObject, $fieldName)) {
+            $this->populateElementalArea($dataObject, $fieldName, $fieldValue);
+            return;
+        }
+
         // Check for has_one relationships
         $hasOneRelations = $dataObject->config()->get('has_one');
         if ($hasOneRelations && isset($hasOneRelations[$fieldName])) {
@@ -88,12 +94,6 @@ class ContentPopulatorService extends BaseContentService
             return;
         }
 
-        // Check for elemental areas
-        if ($this->isElementalArea($dataObject, $fieldName)) {
-            $this->populateElementalArea($dataObject, $fieldName, $fieldValue);
-            return;
-        }
-
         // If we're here, it's a direct field value
         $dataObject->$fieldName = $fieldValue;
     }
@@ -108,18 +108,13 @@ class ContentPopulatorService extends BaseContentService
      */
     protected function populateHasOneRelation(DataObject $dataObject, string $relationName, $value): void
     {
-        // Don't process ElementalArea relations or non-array values
+        // Don't process non-array values or relations that don't exist
         $hasOne = $dataObject->config()->get('has_one');
         if (!isset($hasOne[$relationName]) || !is_array($value)) {
             return;
         }
 
         $relationClass = $hasOne[$relationName];
-
-        // Skip ElementalArea relations (they should be handled by populateElementalArea)
-        if (is_a($relationClass, ElementalArea::class, true)) {
-            return;
-        }
 
         // Create a new object of the related class
         $relatedObject = $relationClass::create();
@@ -263,7 +258,20 @@ class ContentPopulatorService extends BaseContentService
             return false;
         }
 
-        return is_a($hasOne[$fieldName], ElementalArea::class, true);
+        $relationClass = $hasOne[$fieldName];
+
+        // Check direct ElementalArea class or extensions
+        if (is_a($relationClass, ElementalArea::class, true)) {
+            return true;
+        }
+
+        // Check for fields with ElementalArea in name that might be nested areas
+        if (strpos($fieldName, 'Elements') !== false && $dataObject->hasMethod($fieldName)) {
+            $relation = $dataObject->$fieldName();
+            return ($relation instanceof ElementalArea);
+        }
+
+        return false;
     }
 
     /**
@@ -297,6 +305,7 @@ class ContentPopulatorService extends BaseContentService
         $validBlockTypesFields = [
                 'BlockType',
                 'ClassName',
+                'Class',
                 'Type',
                 'type',
             ];
@@ -305,7 +314,6 @@ class ContentPopulatorService extends BaseContentService
             $validBlockTypesFields,
             $dataObject->config()->get('elemental_block_types') ?: []
         );
-
 
         $sort = 1;
         foreach ($blocksData as $blockData) {
@@ -329,8 +337,10 @@ class ContentPopulatorService extends BaseContentService
             }
 
             // Check if the class exists and is a valid element type
-            if (!class_exists($blockClass) || !is_subclass_of($blockClass, BaseElement::class)) {
-                $this->logger->warning("Block class '{$blockClass}' does not exist");
+            if (!class_exists($blockClass)) {
+                $this->logger->warning("Could not resolve block class from data", [
+                    'data' => $blockData
+                ]);
                 continue;
             }
 
