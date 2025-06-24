@@ -2,9 +2,20 @@
 
 An AI-powered content generation module for Silverstripe CMS that allows content editors to create page content using natural language prompts. When creating a new page in the Silverstripe CMS, this module adds a button that opens a modal where users can input prompts to generate content. The AI will structure the content based on the available fields or Elemental blocks for that page type.
 
+## Key Features
+
+- AI-powered content generation directly within the Silverstripe CMS page editing interface
+- Intelligent content structuring based on available page fields or Elemental blocks
+- Support for nested ElementalAreas (blocks within blocks) with cycle detection
+- Chat-like interface for iterating on generated content
+- Streaming responses for better user experience
+- Clear presentation of field types and descriptions in prompts
+- Configurable field exclusions and inclusions
+- Developer tools for debugging and optimizing prompts
+
 ## Architecture Overview
 
-The module has been factored to use a service-oriented architecture with specialized services that work together to provide content generation capabilities.
+The module uses a service-oriented architecture with specialized services that work together to provide content generation capabilities.
 
 ### Core Services
 
@@ -12,6 +23,7 @@ The module has been factored to use a service-oriented architecture with special
    - Analyzes DataObject structure, fields, and relationships
    - Determines which fields are eligible for content generation
    - Handles relationship configuration and field metadata
+   - Implements cycle detection for nested ElementalAreas
 
 2. **ContentAIService**
    - Handles communication with AI models via LLMClient
@@ -23,10 +35,10 @@ The module has been factored to use a service-oriented architecture with special
    - Populates DataObjects with generated content
    - Handles different field types appropriately
    - Manages transactions for content application
+   - Supports nested ElementalAreas and relationship fields
 
 4. **ContentCacheService**
    - Caches page structure and other data to improve performance
-   - Used by the other services for caching needs
 
 ![Silverstripe Content Creator Screenshot](docs/en/images/content-creator-screenshot.png)
 
@@ -84,34 +96,6 @@ class MyController extends Controller
 }
 ```
 
-> **Note:** Previous versions of this module used the `ContentGeneratorService` as a façade for these services. This service is now deprecated and will be removed in a future release. Please use the specialized services directly as shown above.
-
-```php
-
-### Advanced Usage with Stream
-
-```php
-// Generate content with streaming responses
-$aiService->generateStreamContent(
-    $dataObject,
-    $prompt,
-    4000, // max tokens
-    0.7,  // temperature
-    function($text) {
-        // Handle each chunk of text as it comes in
-        echo $text;
-    },
-    function($parsedContent, $usage) {
-        // Handle completion
-        echo "Generation complete!";
-    },
-    function($exception) {
-        // Handle errors
-        echo "Error: " . $exception->getMessage();
-    }
-);
-```
-
 ## Requirements
 
 - PHP 8.1+
@@ -161,7 +145,6 @@ KhalsaJio\ContentCreator\Extensions\ContentCreatorExtension:
 
 - [User Guide](docs/en/userguide.md)
 - [Developer Documentation](docs/en/developer.md)
-- [Caching](docs/en/caching.md)
 
 ## License
 

@@ -658,10 +658,8 @@ class ContentStructureService extends BaseContentService
      */
     protected function shouldIncludeRelationship(string $className, string $relationName, $relationClass): bool
     {
-        // If relationClass is an array (e.g., for many_many with through), get the actual class
-        if (is_array($relationClass) && isset($relationClass['through'])) {
-            $relationClass = $relationClass['through'];
-        }
+
+        $relationClass = $this->normalizeRelationClass($relationClass);
 
         // Only include ElementalArea relationships if they're not the Parent relationship
         // This prevents the Parent/ParentID fields from appearing in blocks
@@ -723,20 +721,15 @@ class ContentStructureService extends BaseContentService
     protected function getRelationshipDescription(string $relationType, $relationClass): string
     {
         $labels = $this->config()->get('relationship_labels') ?: [];
-        $baseDescription = $labels[$relationType] ?? 'Related item';
+        $baseDescription = $labels[$relationType] ?? $relationType;
 
-        // Handle the case where there are no labels configured
-        if (empty($labels)) {
-            return $relationType;
-        }
-
-        // Extract the actual class name from array format
         if (is_array($relationClass) && isset($relationClass['to'])) {
             $relationClass = $relationClass['to'];
         }
 
         // Get the short class name (without namespace)
-        $shortClassName = $this->getShortClassName($relationClass);
+        $normalizedClass = $this->normalizeRelationClass((string) $relationClass);
+        $shortClassName = $this->getShortClassName($normalizedClass);
 
         return "$baseDescription ($shortClassName)";
     }

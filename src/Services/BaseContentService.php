@@ -42,7 +42,7 @@ abstract class BaseContentService
     }
 
     /**
-     * Format a field name into a human-readable title
+     * Helper method to format a field name into a human-readable title
      *
      * @param string $fieldName The field name to format
      * @return string The formatted title
@@ -55,7 +55,7 @@ abstract class BaseContentService
     }
 
     /**
-     * Unsanitise a model class name
+     * Helper method to unsanitise a model class name
      *
      * @param string $class
      * @return string
@@ -80,5 +80,24 @@ abstract class BaseContentService
 
         $parts = explode('\\', $className);
         return end($parts);
+    }
+
+    /**
+     * Helper method to strip dot notation from relation class names.
+     * e.g., "App\Models\MyObject.Parent" becomes "App\Models\MyObject"
+     *
+     * @param string|array $relationClass
+     * @return string
+     */
+    protected function normalizeRelationClass($relationClass): string
+    {
+        if (!is_string($relationClass)) {
+            $relationClass = isset($relationClass['through']) ? $relationClass['through'] : '';
+        }
+
+        if (strpos($relationClass, '.') !== false) {
+            return explode('.', $relationClass, 2)[0];
+        }
+        return $relationClass;
     }
 }

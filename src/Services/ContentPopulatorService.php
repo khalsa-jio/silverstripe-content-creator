@@ -19,36 +19,38 @@ class ContentPopulatorService extends BaseContentService
      * @param DataObject $dataObject The object to populate
      * @param array $generatedContent The content generated from AI in structured format
      * @param bool $write Whether to write the object after population
+     * @param bool $replaceRelations Whether to replace existing items in relations (has_many, elemental)
      * @return DataObject The populated object
      * @throws Exception
      */
-    public function populateContent(DataObject $dataObject, array $generatedContent, bool $write = true): DataObject
-    {
+    public function populateContent(
+        DataObject $dataObject,
+        array $generatedContent,
+        bool $write = true,
+        bool $replaceRelations = true
+    ): DataObject {
         try {
-            // Start transaction to ensure either all fields are populated or none
             DB::get_conn()->transactionStart();
 
             foreach ($generatedContent as $fieldName => $fieldValue) {
-                $this->populateField($dataObject, $fieldName, $fieldValue);
+                $this->populateField($dataObject, $fieldName, $fieldValue, $replaceRelations);
             }
 
             if ($write) {
                 $dataObject->write();
             }
 
-            // Commit transaction
             DB::get_conn()->transactionEnd();
-
             $this->logger->info("Successfully populated content for {$dataObject->ClassName} ID: {$dataObject->ID}");
 
             return $dataObject;
         } catch (Exception $e) {
-            // Rollback transaction on error
             DB::get_conn()->transactionRollback();
             $this->logger->error("Failed to populate content: " . $e->getMessage(), [
                 'object_class' => $dataObject->ClassName,
                 'object_id' => $dataObject->ID,
-                'content' => $generatedContent
+                'content' => $generatedContent,
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
@@ -60,29 +62,31 @@ class ContentPopulatorService extends BaseContentService
      * @param DataObject $dataObject
      * @param string $fieldName
      * @param mixed $fieldValue
+     * @param bool $replaceRelations
      * @throws Exception
      */
-    protected function populateField(DataObject $dataObject, string $fieldName, $fieldValue): void
+    protected function populateField(DataObject $dataObject, string $fieldName, $fieldValue, bool $replaceRelations): void
     {
-        // Skip if field value is null or empty
         if ($fieldValue === null || $fieldValue === '') {
             return;
         }
 
-        // Check for elemental areas first - this needs to take priority over standard has_one processing
-        if ($this->isElementalArea($dataObject, $fieldName)) {
-            $this->populateElementalArea($dataObject, $fieldName, $fieldValue);
+        if (!$dataObject->hasField($fieldName) && !$dataObject->hasMethod($fieldName)) {
+            $this->logger->debug("Skipping non-existent field '{$fieldName}' on {$dataObject->ClassName}.");
             return;
         }
 
-        // Check for has_one relationships
+        if ($this->isElementalArea($dataObject, $fieldName)) {
+            $this->populateElementalArea($dataObject, $fieldName, $fieldValue, $replaceRelations);
+            return;
+        }
+
         $hasOneRelations = $dataObject->config()->get('has_one');
         if ($hasOneRelations && isset($hasOneRelations[$fieldName])) {
-            $this->populateHasOneRelation($dataObject, $fieldName, $fieldValue);
+            $this->populateHasOneRelation($dataObject, $fieldName, $fieldValue, $replaceRelations);
             return;
         }
 
-        // Check for has_many/many_many relationships
         $manyRelations = array_merge(
             $dataObject->config()->get('has_many') ?: [],
             $dataObject->config()->get('many_many') ?: [],
@@ -90,11 +94,10 @@ class ContentPopulatorService extends BaseContentService
         );
 
         if (!empty($manyRelations) && isset($manyRelations[$fieldName])) {
-            $this->populateManyRelation($dataObject, $fieldName, $fieldValue, $manyRelations[$fieldName]);
+            $this->populateManyRelation($dataObject, $fieldName, $fieldValue, $manyRelations[$fieldName], $replaceRelations);
             return;
         }
 
-        // If we're here, it's a direct field value
         $dataObject->$fieldName = $fieldValue;
     }
 
@@ -104,11 +107,11 @@ class ContentPopulatorService extends BaseContentService
      * @param DataObject $dataObject
      * @param string $relationName
      * @param mixed $value
+     * @param bool $replaceRelations
      * @throws Exception
      */
-    protected function populateHasOneRelation(DataObject $dataObject, string $relationName, $value): void
+    protected function populateHasOneRelation(DataObject $dataObject, string $relationName, $value, bool $replaceRelations): void
     {
-        // Don't process non-array values or relations that don't exist
         $hasOne = $dataObject->config()->get('has_one');
         if (!isset($hasOne[$relationName]) || !is_array($value)) {
             return;
@@ -116,20 +119,22 @@ class ContentPopulatorService extends BaseContentService
 
         $relationClass = $hasOne[$relationName];
 
-        // Create a new object of the related class
-        $relatedObject = $relationClass::create();
+        $relatedObject = $dataObject->$relationName();
 
-        // Populate its fields
-        foreach ($value as $subFieldName => $subFieldValue) {
-            $this->populateField($relatedObject, $subFieldName, $subFieldValue);
+        if (!$relatedObject || !$relatedObject->exists()) {
+            $relatedObject = $relationClass::create();
         }
 
-        // Save the related object
+        foreach ($value as $subFieldName => $subFieldValue) {
+            $this->populateField($relatedObject, $subFieldName, $subFieldValue, $replaceRelations);
+        }
+
         $relatedObject->write();
 
-        // Link it to the parent object
         $relationField = $relationName . 'ID';
-        $dataObject->$relationField = $relatedObject->ID;
+        if ($dataObject->$relationField !== $relatedObject->ID) {
+            $dataObject->$relationField = $relatedObject->ID;
+        }
     }
 
     /**
@@ -139,108 +144,38 @@ class ContentPopulatorService extends BaseContentService
      * @param string $relationName
      * @param mixed $value
      * @param string $relationClass
+     * @param bool $replaceRelations
      * @throws Exception
      */
-    protected function populateManyRelation(DataObject $dataObject, string $relationName, $value, string $relationClass): void
+    protected function populateManyRelation(DataObject $dataObject, string $relationName, $value, string $relationClass, bool $replaceRelations): void
     {
         if (!is_array($value)) {
             return;
         }
 
-        // Create a list to track the related objects
-        $relatedObjects = [];
+        if (!$dataObject->isInDB()) {
+            $dataObject->write();
+        }
 
-        // Handle each item in the array
+        $relation = $dataObject->$relationName();
+
+        if ($replaceRelations && $relation instanceof RelationList) {
+            $relation->removeAll();
+        }
+
         foreach ($value as $itemData) {
             if (!is_array($itemData)) {
                 continue;
             }
 
-            // Create a new object of the related class
             $relatedObject = $relationClass::create();
-
-            // Populate its fields
             foreach ($itemData as $subFieldName => $subFieldValue) {
-                $this->populateField($relatedObject, $subFieldName, $subFieldValue);
+                $this->populateField($relatedObject, $subFieldName, $subFieldValue, $replaceRelations);
             }
-
-            // Save the related object
             $relatedObject->write();
 
-            $relatedObjects[] = $relatedObject;
+            $relation->add($relatedObject);
         }
-
-        // Only continue if there are related objects to associate
-        if (empty($relatedObjects)) {
-            return;
-        }
-
-        // Write the parent object if needed for has_many
-        if (!$dataObject->isInDB()) {
-            $dataObject->write();
-        }
-
-        // Find the foreign key field for has_many
-        $foreignKey = $this->findHasManyForeignKey($dataObject, $relationName);
-
-        // Handle has_many relation using the foreign key
-        if ($foreignKey) {
-            foreach ($relatedObjects as $relatedObject) {
-                $relatedObject->$foreignKey = $dataObject->ID;
-                $relatedObject->write();
-            }
-            return;
-        }
-
-        // For many_many relations we need to add to the relation
-        $relation = $dataObject->$relationName();
-        if ($relation && method_exists($relation, 'add')) {
-            foreach ($relatedObjects as $relatedObject) {
-                $relation->add($relatedObject);
-            }
-        }
-    }
-
-    /**
-     * Find the foreign key field name for a has_many relationship
-     *
-     * @param DataObject $parentObject
-     * @param string $relationName
-     * @return string|null
-     */
-    protected function findHasManyForeignKey(DataObject $parentObject, string $relationName): ?string
-    {
-        $hasManyConfig = $parentObject->config()->get('has_many');
-
-        if (!isset($hasManyConfig[$relationName])) {
-            return null;
-        }
-
-        $childClass = $hasManyConfig[$relationName];
-
-        // Check if the relation definition includes the foreign key
-        if (strpos($childClass, '.') !== false) {
-            list($childClass, $foreignKey) = explode('.', $childClass);
-            return $foreignKey;
-        }
-
-        // Try to find the foreign key by examining the child class's has_one relations
-        $childObject = singleton($childClass);
-        $childHasOne = $childObject->config()->get('has_one');
-
-        if (!$childHasOne) {
-            return null;
-        }
-
-        $parentClass = get_class($parentObject);
-
-        foreach ($childHasOne as $relationName => $relationClass) {
-            if ($relationClass === $parentClass || is_subclass_of($parentClass, $relationClass)) {
-                return $relationName . 'ID';
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -280,20 +215,19 @@ class ContentPopulatorService extends BaseContentService
      * @param DataObject $dataObject
      * @param string $fieldName
      * @param array $blocksData
+     * @param bool $replaceRelations
      * @throws Exception
      */
-    protected function populateElementalArea(DataObject $dataObject, string $fieldName, array $blocksData): void
+    protected function populateElementalArea(DataObject $dataObject, string $fieldName, array $blocksData, bool $replaceRelations): void
     {
         if (!is_array($blocksData)) {
             return;
         }
 
-        // Ensure parent object is written first
         if (!$dataObject->isInDB()) {
             $dataObject->write();
         }
 
-        // Get or create the elemental area
         $elementalArea = $dataObject->$fieldName();
         if (!$elementalArea || !$elementalArea->exists()) {
             $elementalArea = ElementalArea::create();
@@ -302,62 +236,112 @@ class ContentPopulatorService extends BaseContentService
             $dataObject->write();
         }
 
-        $validBlockTypesFields = [
-                'BlockType',
-                'ClassName',
-                'Class',
-                'Type',
-                'type',
-            ];
+        if ($replaceRelations) {
+            foreach ($elementalArea->Elements() as $existingElement) {
+                if ($existingElement->hasMethod('doUnpublish')) {
+                    $existingElement->doUnpublish();
+                }
+                $existingElement->delete();
+            }
+        }
 
-        $validBlockTypes = array_merge(
-            $validBlockTypesFields,
-            $dataObject->config()->get('elemental_block_types') ?: []
-        );
+        $blockClassFieldCandidates = ['BlockType', 'ClassName', 'Class', 'Type', 'type'];
+
+        $this->extend('updateValidBlockTypesFields', $blockClassFieldCandidates);
+
+        $normalizedBlocksData = $this->normalizeBlocksData($blocksData, $blockClassFieldCandidates);
 
         $sort = 1;
-        foreach ($blocksData as $blockData) {
-            // Try multiple approaches to determine the block class
+        foreach ($normalizedBlocksData as $blockData) {
             $blockClass = null;
 
-            // Check for known block type fields
-            foreach ($validBlockTypes as $field) {
+            foreach ($blockClassFieldCandidates as $field) {
                 if (isset($blockData[$field])) {
                     $blockClass = $this->unsanitiseClassName($blockData[$field]);
                     break;
                 }
             }
 
-            // If we still don't have a class, skip this block
             if (!$blockClass) {
-                $this->logger->warning("Unable to determine element block class from data", [
-                    'data' => $blockData
-                ]);
+                $this->logger->warning("Unable to determine element block class from data", ['data' => $blockData]);
                 continue;
             }
 
-            // Check if the class exists and is a valid element type
-            if (!class_exists($blockClass)) {
-                $this->logger->warning("Could not resolve block class from data", [
-                    'data' => $blockData
-                ]);
+            if (!class_exists($blockClass) || !is_subclass_of($blockClass, BaseElement::class)) {
+                $this->logger->warning("Resolved class '{$blockClass}' is not a valid Element.", ['data' => $blockData]);
                 continue;
             }
 
-            // Create the block
             $block = $blockClass::create();
             $block->ParentID = $elementalArea->ID;
             $block->Sort = $sort++;
 
-            // Populate block fields
             foreach ($blockData as $blockFieldName => $blockFieldValue) {
-                if (in_array($blockFieldName, $validBlockTypesFields)) {
+                if (in_array($blockFieldName, $blockClassFieldCandidates)) {
                     continue;
                 }
-                $this->populateField($block, $blockFieldName, $blockFieldValue);
+                $this->populateField($block, $blockFieldName, $blockFieldValue, $replaceRelations);
             }
 
             $block->write();
         }
+    }
+
+    /**
+     * Normalize blocks data to always work with an indexed array of block data
+     * This handles both direct key-value pairs and nested arrays of blocks
+     *
+     * @param array $blocksData The raw blocks data from LLM
+     * @return array Normalized array of block data
+     */
+    protected function normalizeBlocksData(array $blocksData, $blockClassFieldOptions): array
+    {
+        if (isset($blocksData[0]) && is_array($blocksData[0])) {
+            return $blocksData;
+        }
+
+        // LLM responses can have blocks in various keys, so we need to check multiple possibilities
+        // I encountered cases where blocks were nested under 'blocks', 'Elements'
+        $nestedKeys = ['blocks', 'Elements', 'elements', 'Blocks'];
+
+        $this->extend('updateNestedKeys', arguments: $nestedKeys);
+
+        foreach ($nestedKeys as $nestedKey) {
+            if (isset($blocksData[$nestedKey]) && is_array($blocksData[$nestedKey])) {
+                if (isset($blocksData[$nestedKey][0])) {
+                    return $blocksData[$nestedKey];
+                } else {
+                    $result = [];
+                    foreach ($blocksData[$nestedKey] as $key => $data) {
+                        if (is_array($data)) {
+                            $result[] = $data;
+                        }
+                    }
+                    if (!empty($result)) {
+                        return $result;
+                    }
+                }
+            }
+        }
+
+        $result = [];
+        foreach ($blocksData as $key => $value) {
+            if (is_array($value)) {
+                $hasBlockTypeField = false;
+
+                foreach ($blockClassFieldOptions as $field) {
+                    if (isset($value[$field])) {
+                        $hasBlockTypeField = true;
+                        break;
+                    }
+                }
+
+                if ($hasBlockTypeField) {
+                    $result[] = $value;
+                }
+            }
+        }
+
+        return !empty($result) ? $result : [$blocksData];
     }
 }
